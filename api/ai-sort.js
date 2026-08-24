@@ -151,7 +151,13 @@ export default async function handler(req, res) {
 
         const philosophyText =
           scoringPhilosophy ||
-          `Scoring philosophy values the lived experience, structural consistency, emotional depth and content & mechanism above all else. External factors such as commercial sales, mainstream hype or historical influence are entirely disregarded. Death of the Author approach applies strictly.`;
+          `My scoring prioritizes lived experience, structural consistency, emotional depth and mechanical execution above all else. External factors such as commercial success, release date, historical influence and cultural hype are not considered unless they directly affect the artistic or interactive experience itself.
+
+I don't review from the perspective of a historian. I wasn't there so I believe I can't cosplay to be. I engage with works as they exist for me, in the present moment without performing nostalgia or bending to "what it meant for its time." I'm aware that a book from the 1940s was written for people living in the 1940s but I'm not them, I'm here now and if I have the access to a work then I experience it as a contemporary, not as a time traveler. A work stands or falls on what it delivers to me, today, not on the grace I extend to it for being old.
+
+I don't accept "that's the point" as a defense, you could really counter any criticism with that move so it's kinda lazy to me and I am almost always aware of the context and point too, it just doesn't effect my experience so I ignore it. I also don't do mental gymnastics to reconstruct what the creator was trying to say because I don't personally believe art is primarily communication and I don't owe the artist my deference, I focus on my own connection and my own meaning to the product. Misunderstanding is human, disliking what others revere is human. I just don't let externals to override my judgment. A work either lands or it doesn't and my review reflects that.
+
+This isn't objectivity nor authority, I'll never claim to be an authority because I review and experience for only myself, I might be narrow intellectually to the most people but I walk the road I chose proudly and happily. It's just one person's honest encounter and you're welcome to disagree but I won't defend my right to feel what I feel. I hope you find my takes and reviews interesting and enjoyable.`;
 
         const prompt = `You are an automated archive sorting evaluator. Your task is to rank the provided media items from BEST to WORST.
 
@@ -167,7 +173,13 @@ CRITICAL RULES:
 Input Items:
 ${JSON.stringify(simplifiedItems, null, 2)}`;
 
-        const candidateModels = ['gemini-3.7-flash', 'gemini-flash-latest'];
+        const candidateModels = [
+          'gemini-3.7-flash',
+          'gemini-3.6-flash',
+          'gemini-3.5-flash-lite',
+          'gemini-3.5-flash',
+          'gemini-flash-latest',
+        ];
         let response = null;
 
         const callWithTimeout = (promise, ms = 20000) =>
@@ -201,13 +213,17 @@ ${JSON.stringify(simplifiedItems, null, 2)}`;
                   },
                 },
               }),
-              18000
+              16000
             );
             if (response && response.text) {
               break;
             }
           } catch (modelErr) {
-            console.warn(`ai-sort model ${modelName} failed:`, modelErr?.message || modelErr);
+            const is503 = String(modelErr?.message || modelErr).includes('503') || String(modelErr?.message || modelErr).includes('UNAVAILABLE');
+            if (is503) {
+              // Brief jitter backoff before next candidate model
+              await new Promise((r) => setTimeout(r, 400));
+            }
           }
         }
 
