@@ -372,35 +372,37 @@ async function renderCardToCanvas(item: MediaItem): Promise<string> {
       : item.mediaFormat || 'Media'
   ).toUpperCase();
 
-  ctx.font = 'bold 11px monospace';
+  ctx.font = 'bold 13px monospace';
   const formatTextW = ctx.measureText(formatName).width;
-  const formatPillW = formatTextW + 16;
-  const formatPillH = 24;
+  const formatPillW = formatTextW + 22;
+  const formatPillH = 30;
   const badgeY = cardY + 12;
   const badgeLeftX = cardX + 12;
 
-  ctx.fillStyle = 'rgba(2, 6, 23, 0.92)';
-  roundRect(ctx, badgeLeftX, badgeY, formatPillW, formatPillH, 5);
+  ctx.fillStyle = 'rgba(2, 6, 23, 0.94)';
+  roundRect(ctx, badgeLeftX, badgeY, formatPillW, formatPillH, 6);
   ctx.fill();
   ctx.strokeStyle = '#334155';
   ctx.lineWidth = 1;
-  roundRect(ctx, badgeLeftX, badgeY, formatPillW, formatPillH, 5);
+  roundRect(ctx, badgeLeftX, badgeY, formatPillW, formatPillH, 6);
   ctx.stroke();
 
   ctx.fillStyle = item.isCustomCategory ? '#fbbf24' : '#c084fc';
-  ctx.fillText(formatName, badgeLeftX + 8, badgeY + 16);
+  ctx.fillText(formatName, badgeLeftX + 11, badgeY + 20);
 
   // OST Badge if applicable
   if (item.mediaFormat === 'Music Album' && item.isSoundtrack) {
-    const ostX = badgeLeftX + formatPillW + 6;
-    ctx.fillStyle = 'rgba(88, 28, 135, 0.9)';
-    roundRect(ctx, ostX, badgeY, 44, formatPillH, 5);
+    const ostX = badgeLeftX + formatPillW + 8;
+    const ostW = 46;
+    ctx.fillStyle = 'rgba(88, 28, 135, 0.92)';
+    roundRect(ctx, ostX, badgeY, ostW, formatPillH, 6);
     ctx.fill();
     ctx.strokeStyle = '#9333ea';
-    roundRect(ctx, ostX, badgeY, 44, formatPillH, 5);
+    roundRect(ctx, ostX, badgeY, ostW, formatPillH, 6);
     ctx.stroke();
     ctx.fillStyle = '#f3e8ff';
-    ctx.fillText('OST', ostX + 11, badgeY + 16);
+    ctx.font = 'bold 12px monospace';
+    ctx.fillText('OST', ostX + 11, badgeY + 20);
   }
 
   // Top-Right: Hornet Score Badge
@@ -408,39 +410,39 @@ async function renderCardToCanvas(item: MediaItem): Promise<string> {
   const scoreColor =
     score >= 9 ? '#10b981' : score >= 7 ? '#a855f7' : score >= 5 ? '#f59e0b' : '#ef4444';
 
-  ctx.font = 'bold 13px monospace';
   const scoreMainText = `${score}`;
   const scoreSubText = '/10';
+  ctx.font = 'bold 18px monospace';
   const scoreMainW = ctx.measureText(scoreMainText).width;
-  ctx.font = '10px monospace';
+  ctx.font = 'bold 11px monospace';
   const scoreSubW = ctx.measureText(scoreSubText).width;
-  const scoreBadgeW = scoreMainW + scoreSubW + 20;
-  const scoreBadgeH = 25;
+  const scoreBadgeW = scoreMainW + scoreSubW + 36;
+  const scoreBadgeH = 30;
   const scoreBadgeX = cardX + innerCardWidth - 12 - scoreBadgeW;
 
-  ctx.fillStyle = 'rgba(2, 6, 23, 0.94)';
-  roundRect(ctx, scoreBadgeX, badgeY, scoreBadgeW, scoreBadgeH, 12);
+  ctx.fillStyle = 'rgba(2, 6, 23, 0.95)';
+  roundRect(ctx, scoreBadgeX, badgeY, scoreBadgeW, scoreBadgeH, 15);
   ctx.fill();
   ctx.strokeStyle = '#334155';
   ctx.lineWidth = 1;
-  roundRect(ctx, scoreBadgeX, badgeY, scoreBadgeW, scoreBadgeH, 12);
+  roundRect(ctx, scoreBadgeX, badgeY, scoreBadgeW, scoreBadgeH, 15);
   ctx.stroke();
 
-  // Score Dot
+  // Score Dot Indicator
   ctx.fillStyle = scoreColor;
   ctx.beginPath();
-  ctx.arc(scoreBadgeX + 10, badgeY + 12.5, 3.5, 0, Math.PI * 2);
+  ctx.arc(scoreBadgeX + 13, badgeY + 15, 4, 0, Math.PI * 2);
   ctx.fill();
 
   // Score Number
   ctx.fillStyle = scoreColor;
-  ctx.font = 'bold 13px monospace';
-  ctx.fillText(scoreMainText, scoreBadgeX + 17, badgeY + 17);
+  ctx.font = 'bold 18px monospace';
+  ctx.fillText(scoreMainText, scoreBadgeX + 22, badgeY + 21.5);
 
   // Score Denominator /10
   ctx.fillStyle = '#64748b';
-  ctx.font = '10px monospace';
-  ctx.fillText(scoreSubText, scoreBadgeX + 17 + scoreMainW, badgeY + 17);
+  ctx.font = 'bold 11px monospace';
+  ctx.fillText(scoreSubText, scoreBadgeX + 22 + scoreMainW + 2, badgeY + 20);
 
   // --- BOTTOM OF COVER BADGES (Year & Origin) ---
   const parsedYear = extractReleaseYear(item.releaseDate);
@@ -451,56 +453,56 @@ async function renderCardToCanvas(item: MediaItem): Promise<string> {
     : '';
 
   let bottomBadgeX = cardX + 12;
-  const bottomBadgeY = cardY + coverHeight - 30;
+  const bottomBadgeY = cardY + coverHeight - 34;
 
   if (yearStr) {
-    ctx.font = '10px monospace';
-    const yW = ctx.measureText(yearStr).width + 14;
+    ctx.font = 'bold 11px monospace';
+    const yW = ctx.measureText(yearStr).width + 16;
     ctx.fillStyle = 'rgba(2, 6, 23, 0.88)';
-    roundRect(ctx, bottomBadgeX, bottomBadgeY, yW, 19, 4);
+    roundRect(ctx, bottomBadgeX, bottomBadgeY, yW, 22, 5);
     ctx.fill();
     ctx.strokeStyle = '#334155';
     ctx.lineWidth = 1;
-    roundRect(ctx, bottomBadgeX, bottomBadgeY, yW, 19, 4);
+    roundRect(ctx, bottomBadgeX, bottomBadgeY, yW, 22, 5);
     ctx.stroke();
 
     ctx.fillStyle = '#cbd5e1';
-    ctx.fillText(yearStr, bottomBadgeX + 7, bottomBadgeY + 13);
+    ctx.fillText(yearStr, bottomBadgeX + 8, bottomBadgeY + 15.5);
     bottomBadgeX += yW + 6;
   }
 
   if (item.countryOfOrigin) {
-    ctx.font = '10px monospace';
+    ctx.font = 'bold 11px monospace';
     const cText = item.countryOfOrigin;
-    const cW = ctx.measureText(cText).width + 14;
+    const cW = ctx.measureText(cText).width + 16;
     ctx.fillStyle = 'rgba(2, 6, 23, 0.88)';
-    roundRect(ctx, bottomBadgeX, bottomBadgeY, cW, 19, 4);
+    roundRect(ctx, bottomBadgeX, bottomBadgeY, cW, 22, 5);
     ctx.fill();
     ctx.strokeStyle = '#334155';
     ctx.lineWidth = 1;
-    roundRect(ctx, bottomBadgeX, bottomBadgeY, cW, 19, 4);
+    roundRect(ctx, bottomBadgeX, bottomBadgeY, cW, 22, 5);
     ctx.stroke();
 
     ctx.fillStyle = '#d8b4fe';
-    ctx.fillText(cText, bottomBadgeX + 7, bottomBadgeY + 13);
+    ctx.fillText(cText, bottomBadgeX + 8, bottomBadgeY + 15.5);
     bottomBadgeX += cW + 6;
   }
 
   if (item.consumedVersion) {
-    ctx.font = '10px monospace';
+    ctx.font = 'bold 11px monospace';
     const vText = item.consumedVersion;
-    const vW = ctx.measureText(vText).width + 14;
+    const vW = ctx.measureText(vText).width + 16;
     const vX = cardX + innerCardWidth - 12 - vW;
     ctx.fillStyle = 'rgba(2, 6, 23, 0.88)';
-    roundRect(ctx, vX, bottomBadgeY, vW, 19, 4);
+    roundRect(ctx, vX, bottomBadgeY, vW, 22, 5);
     ctx.fill();
     ctx.strokeStyle = '#334155';
     ctx.lineWidth = 1;
-    roundRect(ctx, vX, bottomBadgeY, vW, 19, 4);
+    roundRect(ctx, vX, bottomBadgeY, vW, 22, 5);
     ctx.stroke();
 
     ctx.fillStyle = '#cbd5e1';
-    ctx.fillText(vText, vX + 7, bottomBadgeY + 13);
+    ctx.fillText(vText, vX + 8, bottomBadgeY + 15.5);
   }
 
   // --- CARD BODY DETAILS ---
