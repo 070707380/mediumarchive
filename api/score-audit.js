@@ -225,7 +225,7 @@ I don't review from the perspective of a historian. I wasn't there so I believe 
 
 I don't accept "that's the point" as a defense, you could really counter any criticism with that move so it's kinda lazy to me and I am almost always aware of the context and point too, it just doesn't effect my experience so I ignore it. I also don't do mental gymnastics to reconstruct what the creator was trying to say because I don't personally believe art is primarily communication and I don't owe the artist my deference, I focus on my own connection and my own meaning to the product. Misunderstanding is human, disliking what others revere is human. I just don't let externals to override my judgment. A work either lands or it doesn't and my review reflects that.
 
-This isn't objectivity nor authority, I'll never claim to be an authority because I review and experience for only myself, I might be narrow intellectually to the most people but I walk the road I chose proudly and happily. It's just one person's honest encounter and you're welcome to disagree but I won't defend my right to feel what I feel. I hope you find my takes and reviews interesting and enjoyable.`;
+This isn't objectivity nor authority, I'll never claim to be an authority because I review and experience for only myself, I might be narrow intellectually to the most people but I walk the road I chose proudly and happily. It's just one person's honest encounter and you're welcome to disagree but I won't defend my right to feel what I feel and no one has to adopt my perspective, I just don't believe there is a "correct" way to experience art. I hope you find my takes and reviews interesting and enjoyable.`;
 
       const candidateModels = [
         'gemini-3.7-flash',
