@@ -60,7 +60,7 @@ const CATEGORY_OPTIONS: { label: string; value: CreatorCategory | 'ALL' }[] = [
   { label: 'Other', value: 'Other' },
 ];
 
-// Memoized individual Creator Card for ultra-fast, smooth scrolling without layout thrashing
+// Memoized individual Creator Card for ultra-fast, smooth listing view without awkward gaps or large failed images
 const CreatorCard = React.memo<{
   creator: CreatorAggregate;
   onSelectCreator: (creatorName: string, category?: CreatorCategory) => void;
@@ -68,59 +68,83 @@ const CreatorCard = React.memo<{
   getCategoryIcon: (cat: CreatorCategory) => React.ReactNode;
 }>(({ creator, onSelectCreator, onSelectMedia, getCategoryIcon }) => {
   const scoreInfo = getScoreLevelInfo(creator.averageScore);
+  const initials = creator.name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0].toUpperCase())
+    .join('');
 
   return (
     <div
       onClick={() => onSelectCreator(creator.name, creator.category)}
-      className="group relative bg-slate-900 border border-slate-800 hover:border-amber-500/50 rounded-2xl overflow-hidden shadow-md hover:shadow-lg transition-colors duration-200 flex flex-col cursor-pointer transform-gpu"
+      className="group relative bg-slate-900/90 hover:bg-slate-900 border border-slate-800 hover:border-amber-500/40 rounded-xl p-3.5 transition-all duration-150 flex flex-col justify-between cursor-pointer shadow-sm hover:shadow-md"
     >
-      {/* Photo Header Container with Average Score Overlay */}
-      <div className="relative w-full h-48 bg-slate-950 overflow-hidden flex items-center justify-center border-b border-slate-800">
-        <SmartImage
-          src={creator.photoUrl || creator.wikiUrl || creator.name}
-          wikiUrl={creator.wikiUrl || `https://en.wikipedia.org/wiki/${encodeURIComponent(creator.name)}`}
-          alt={creator.name}
-          loading="lazy"
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 transform-gpu"
-        />
-
-        {/* Gradient Overlay for photo readability */}
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-black/30 opacity-70 pointer-events-none" />
-
-        {/* Top-Right Average Score Badge */}
-        <div className="absolute top-2.5 right-2.5 z-10 flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-950/90 border border-amber-500/50 shadow-md">
-          <Star size={11} className="text-amber-400 fill-amber-400 shrink-0" />
-          <div className="flex flex-col items-end leading-none">
-            <span className="text-[8px] font-mono text-slate-400 uppercase font-bold tracking-tighter">Avg Score</span>
-            <span className={`text-xs font-mono font-black ${scoreInfo.color}`}>
-              {creator.averageScore.toFixed(1)}
-            </span>
+      {/* Top Header: Compact Avatar + Details + Score */}
+      <div className="flex items-start gap-3">
+        {/* Compact Thumbnail (48x48) */}
+        <div className="w-12 h-12 rounded-xl bg-slate-950 border border-slate-800 shrink-0 overflow-hidden relative flex items-center justify-center group-hover:border-amber-500/40 transition-colors">
+          {creator.photoUrl ? (
+            <img
+              src={creator.photoUrl}
+              alt={creator.name}
+              loading="lazy"
+              decoding="async"
+              referrerPolicy="no-referrer"
+              className="w-full h-full object-cover relative z-10"
+              onError={(e) => {
+                // If photo URL fails, hide img and reveal fallback initials/icon
+                (e.target as HTMLElement).style.display = 'none';
+              }}
+            />
+          ) : null}
+          <div className="absolute inset-0 flex items-center justify-center text-slate-400 font-mono font-bold text-xs bg-slate-950">
+            {initials || getCategoryIcon(creator.category)}
           </div>
         </div>
 
-        {/* Category Pill on Image (Bottom Left of photo) */}
-        <div className="absolute bottom-2.5 left-2.5 z-10 flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-slate-950/90 border border-slate-800 text-slate-200 font-mono text-[11px]">
-          {getCategoryIcon(creator.category)}
-          <span>{creator.category}</span>
-          {creator.nation && <span className="text-slate-400">• {creator.nation}</span>}
-        </div>
-      </div>
+        {/* Info Column */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-sm font-bold font-mono text-slate-100 group-hover:text-amber-300 transition-colors truncate">
+              {creator.name}
+            </h3>
 
-      {/* Card Content */}
-      <div className="p-4 flex-1 flex flex-col justify-between space-y-3 font-sans">
-        {/* Creator Name */}
-        <div>
-          <h3 className="text-base font-bold font-mono text-slate-100 group-hover:text-amber-300 transition-colors line-clamp-1">
-            {creator.name}
-          </h3>
+            {/* Compact Avg Score Badge */}
+            <div
+              className={`shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-slate-950 border border-slate-800 text-xs font-mono font-bold ${scoreInfo.color}`}
+              title={`Average score: ${creator.averageScore.toFixed(1)}/10`}
+            >
+              <Star size={10} className="fill-current" />
+              <span>{creator.averageScore.toFixed(1)}</span>
+            </div>
+          </div>
+
+          {/* Subtitle: Category & Nation & Works count */}
+          <div className="flex items-center flex-wrap gap-1.5 mt-0.5 text-[11px] font-mono text-slate-400">
+            <span className="flex items-center gap-1 text-slate-300">
+              {getCategoryIcon(creator.category)}
+              <span>{creator.category}</span>
+            </span>
+            {creator.nation && (
+              <>
+                <span className="text-slate-600">•</span>
+                <span className="text-slate-400">{creator.nation}</span>
+              </>
+            )}
+            <span className="text-slate-600">•</span>
+            <span className="text-amber-400/90 font-semibold">
+              {creator.involvedItems.length} {creator.involvedItems.length === 1 ? 'work' : 'works'}
+            </span>
+          </div>
 
           {/* Tags */}
           {creator.personalityTags && creator.personalityTags.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-1.5">
-              {creator.personalityTags.slice(0, 3).map((tag, tidx) => (
+              {creator.personalityTags.slice(0, 2).map((tag, tidx) => (
                 <span
                   key={tidx}
-                  className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20"
+                  className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-300/90 border border-amber-500/20"
                 >
                   #{tag.toLowerCase()}
                 </span>
@@ -128,56 +152,49 @@ const CreatorCard = React.memo<{
             </div>
           )}
         </div>
+      </div>
 
-        {/* Creations + Role List */}
-        <div className="space-y-1.5 pt-2 border-t border-slate-800/80">
-          <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 font-bold uppercase tracking-wider">
-            <span>Creations ({creator.involvedItems.length})</span>
-            <span className="text-[10px] text-amber-400/90 group-hover:underline">View Bio →</span>
-          </div>
-
-          <div className="space-y-1 max-h-28 overflow-hidden">
-            {creator.involvedItems.slice(0, 3).map(({ item, role }, iidx) => (
-              <div
-                key={iidx}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (onSelectMedia) onSelectMedia(item);
-                }}
-                className="flex items-center justify-between gap-2 p-1.5 rounded-lg bg-slate-950/80 hover:bg-slate-950 border border-slate-800/80 hover:border-amber-500/40 text-xs transition-colors"
-                title={`Inspect ${item.title}`}
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  {item.cover ? (
-                    <img
-                      src={item.cover}
-                      alt={item.title}
-                      loading="lazy"
-                      decoding="async"
-                      referrerPolicy="no-referrer"
-                      className="w-5 h-6 rounded object-cover shrink-0 border border-slate-800"
-                    />
-                  ) : (
-                    <div className="w-5 h-6 rounded bg-slate-900 shrink-0 flex items-center justify-center text-slate-600">
-                      <Film size={10} />
-                    </div>
-                  )}
-                  <span className="font-bold text-slate-200 truncate group-hover:text-amber-200 text-[11px]">
-                    {item.title}
-                  </span>
+      {/* Creations Listing (Compact Row / List) */}
+      <div className="mt-3 pt-2 border-t border-slate-800/80 space-y-1">
+        {creator.involvedItems.slice(0, 2).map(({ item, role }, iidx) => (
+          <div
+            key={iidx}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onSelectMedia) onSelectMedia(item);
+            }}
+            className="flex items-center justify-between gap-2 px-2 py-1 rounded-lg bg-slate-950/60 hover:bg-slate-950 border border-slate-800/60 hover:border-amber-500/40 text-xs transition-colors"
+            title={`View ${item.title}`}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              {item.cover ? (
+                <img
+                  src={item.cover}
+                  alt={item.title}
+                  loading="lazy"
+                  decoding="async"
+                  referrerPolicy="no-referrer"
+                  className="w-4 h-5 rounded object-cover shrink-0 border border-slate-800"
+                />
+              ) : (
+                <div className="w-4 h-5 rounded bg-slate-900 shrink-0 flex items-center justify-center text-slate-600">
+                  <Film size={8} />
                 </div>
-                <span className="text-[10px] font-mono text-slate-400 shrink-0 bg-slate-900 px-1.5 py-0.2 rounded border border-slate-800">
-                  {role}
-                </span>
-              </div>
-            ))}
-            {creator.involvedItems.length > 3 && (
-              <div className="text-[10px] font-mono text-slate-500 text-center pt-0.5 italic">
-                +{creator.involvedItems.length - 3} more creations in archive
-              </div>
-            )}
+              )}
+              <span className="text-slate-200 truncate group-hover:text-amber-200 text-[11px] font-medium">
+                {item.title}
+              </span>
+            </div>
+            <span className="text-[9px] font-mono text-slate-400 shrink-0 bg-slate-900 px-1.5 py-0.2 rounded border border-slate-800/80 max-w-[100px] truncate">
+              {role}
+            </span>
           </div>
-        </div>
+        ))}
+        {creator.involvedItems.length > 2 && (
+          <div className="text-[10px] font-mono text-slate-500 text-right pr-1 pt-0.5">
+            +{creator.involvedItems.length - 2} more in bio →
+          </div>
+        )}
       </div>
     </div>
   );
@@ -573,9 +590,9 @@ export const CreatorsPage: React.FC<CreatorsPageProps> = ({
         )}
       </div>
 
-      {/* Creator Grid */}
+      {/* Creator Grid (Listing Style) */}
       {currentCreators.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
           {currentCreators.map((creator) => (
             <CreatorCard
               key={creator.name}
