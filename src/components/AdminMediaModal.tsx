@@ -110,12 +110,38 @@ export const AdminMediaModal: React.FC<AdminMediaModalProps> = ({
   const [soundtrackForTitle, setSoundtrackForTitle] = useState('');
   const [soundtrackEntries, setSoundtrackEntries] = useState<{ id?: string; title: string }[]>([]);
 
+  // Defer cover preview so keystrokes remain instantaneous without image pipeline blocking
+  const deferredCover = React.useDeferredValue(cover);
+
   // Collect all known genre tags across items for auto-correction
   const existingGenresPool = React.useMemo(() => {
     const set = new Set<string>();
     allItems.forEach((i) => i.genres?.forEach((g) => set.add(g.trim())));
     return Array.from(set);
   }, [allItems]);
+
+  // Memoize filtered tag suggestions to prevent recalculation on every keystroke in other fields
+  const filteredPhiloTags = React.useMemo(() => {
+    if (!existingPhilosophicalTags || existingPhilosophicalTags.length === 0) return [];
+    const query = newPhiloTag.trim().toLowerCase();
+    if (!query) return existingPhilosophicalTags.slice(0, 40);
+    return existingPhilosophicalTags.filter((t) => t.toLowerCase().includes(query)).slice(0, 40);
+  }, [newPhiloTag, existingPhilosophicalTags]);
+
+  const filteredStyleTags = React.useMemo(() => {
+    if (!existingStyleTags || existingStyleTags.length === 0) return [];
+    const query = newStyleTag.trim().toLowerCase();
+    if (!query) return existingStyleTags.slice(0, 40);
+    return existingStyleTags.filter((t) => t.toLowerCase().includes(query)).slice(0, 40);
+  }, [newStyleTag, existingStyleTags]);
+
+  const parsedInfluenceList = React.useMemo(() => {
+    return mediumInfluencesStr.split(',').map((s) => s.trim()).filter(Boolean);
+  }, [mediumInfluencesStr]);
+
+  const parsedSimilarList = React.useMemo(() => {
+    return similarMediaStr.split(',').map((s) => s.trim()).filter(Boolean);
+  }, [similarMediaStr]);
 
   const [pendingLinkMatches, setPendingLinkMatches] = useState<{
     id: string;
@@ -786,7 +812,7 @@ export const AdminMediaModal: React.FC<AdminMediaModalProps> = ({
     onClose();
   };
 
-  const levelInfo = getScoreLevelInfo(hornetScore);
+  const levelInfo = React.useMemo(() => getScoreLevelInfo(hornetScore), [hornetScore]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-950/85 backdrop-blur-md animate-fade-in overflow-y-auto">
@@ -848,22 +874,16 @@ export const AdminMediaModal: React.FC<AdminMediaModalProps> = ({
               type="text"
               placeholder="Paste image link, Wikipedia article link, or data URL..."
               value={cover}
-              onChange={async (e) => {
-                const val = e.target.value;
-                setCover(val);
-                if (isWikipediaArticleUrl(val)) {
-                  const wikiImg = await fetchWikipediaImage(val);
-                  if (wikiImg) setCover(wikiImg);
-                }
-              }}
+              onChange={(e) => setCover(e.target.value)}
               onBlur={async () => {
-                if (cover.trim()) {
-                  if (isWikipediaArticleUrl(cover)) {
-                    const wikiImg = await fetchWikipediaImage(cover);
+                const trimmed = cover.trim();
+                if (trimmed) {
+                  if (isWikipediaArticleUrl(trimmed)) {
+                    const wikiImg = await fetchWikipediaImage(trimmed);
                     if (wikiImg) setCover(wikiImg);
-                    else setCover(formatImageUrl(cover));
+                    else setCover(formatImageUrl(trimmed));
                   } else {
-                    setCover(formatImageUrl(cover));
+                    setCover(formatImageUrl(trimmed));
                   }
                 }
               }}
@@ -873,9 +893,9 @@ export const AdminMediaModal: React.FC<AdminMediaModalProps> = ({
             {/* Live Preview Container */}
             <div className="mt-2 flex flex-col sm:flex-row items-center gap-4 p-3 rounded-lg bg-slate-900 border border-slate-800">
               <div className="w-full sm:w-48 aspect-[16/9] bg-slate-950 rounded-lg overflow-hidden border border-slate-700/60 relative flex items-center justify-center shrink-0">
-                {cover.trim() ? (
+                {deferredCover.trim() ? (
                   <SmartImage
-                    src={cover}
+                    src={deferredCover}
                     alt="Cover preview"
                     className="w-full h-full object-cover object-center"
                   />
@@ -1650,22 +1670,20 @@ Roger Taylor (Drummer, Vocalist)"
             )}
 
             {/* Existing tags quick picker */}
-            {existingPhilosophicalTags.length > 0 && (
+            {filteredPhiloTags.length > 0 && (
               <div className="space-y-1">
                 <span className="text-[10px] font-mono text-slate-400">Quick select existing tags:</span>
                 <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto">
-                  {existingPhilosophicalTags
-                    .filter((t) => !newPhiloTag.trim() || t.toLowerCase().includes(newPhiloTag.trim().toLowerCase()))
-                    .map((t, idx) => (
-                      <button
-                        key={`exist-philo-${t}-${idx}`}
-                        type="button"
-                        onClick={() => handleAddPhiloTag(t)}
-                        className="px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-950/80 hover:bg-indigo-900 text-indigo-300 border border-indigo-800/60 transition"
-                      >
-                        + {t}
-                      </button>
-                    ))}
+                  {filteredPhiloTags.map((t, idx) => (
+                    <button
+                      key={`exist-philo-${t}-${idx}`}
+                      type="button"
+                      onClick={() => handleAddPhiloTag(t)}
+                      className="px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-950/80 hover:bg-indigo-900 text-indigo-300 border border-indigo-800/60 transition"
+                    >
+                      + {t}
+                    </button>
+                  ))}
                 </div>
               </div>
             )}
@@ -1745,22 +1763,20 @@ Roger Taylor (Drummer, Vocalist)"
             )}
 
             {/* Existing tags quick picker */}
-            {existingStyleTags.length > 0 && (
+            {filteredStyleTags.length > 0 && (
               <div className="space-y-1">
                 <span className="text-[10px] font-mono text-slate-400">Quick select existing tags:</span>
                 <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto">
-                  {existingStyleTags
-                    .filter((t) => !newStyleTag.trim() || t.toLowerCase().includes(newStyleTag.trim().toLowerCase()))
-                    .map((t, idx) => (
-                      <button
-                        key={`exist-style-${t}-${idx}`}
-                        type="button"
-                        onClick={() => handleAddStyleTag(t)}
-                        className="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-900 hover:bg-slate-800 text-emerald-300 border border-emerald-900/60 transition"
-                      >
-                        + {t}
-                      </button>
-                    ))}
+                  {filteredStyleTags.map((t, idx) => (
+                    <button
+                      key={`exist-style-${t}-${idx}`}
+                      type="button"
+                      onClick={() => handleAddStyleTag(t)}
+                      className="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-900 hover:bg-slate-800 text-emerald-300 border border-emerald-900/60 transition"
+                    >
+                      + {t}
+                    </button>
+                  ))}
                 </div>
               </div>
             )}
@@ -1970,12 +1986,12 @@ Roger Taylor (Drummer, Vocalist)"
               </div>
 
               {/* Optional Custom Cover attachment for Influences */}
-              {mediumInfluencesStr.trim().length > 0 && (
+              {parsedInfluenceList.length > 0 && (
                 <div className="space-y-2 pt-1 border-t border-slate-800">
                   <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider font-bold">
                     Custom Covers for Uncataloged Influences (Optional)
                   </span>
-                  {mediumInfluencesStr.split(',').map((s) => s.trim()).filter(Boolean).map((titleStr, idx) => {
+                  {parsedInfluenceList.map((titleStr, idx) => {
                     const match = mediumInfluencesDetails.find((d) => d.title.toLowerCase().trim() === titleStr.toLowerCase().trim());
                     const currentCover = match?.customCover || '';
                     return (
@@ -2026,12 +2042,12 @@ Roger Taylor (Drummer, Vocalist)"
               </div>
 
               {/* Optional Custom Cover attachment for Similar Media */}
-              {similarMediaStr.trim().length > 0 && (
+              {parsedSimilarList.length > 0 && (
                 <div className="space-y-2 pt-1 border-t border-slate-800">
                   <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider font-bold">
                     Custom Covers for Uncataloged Similar Media
                   </span>
-                  {similarMediaStr.split(',').map((s) => s.trim()).filter(Boolean).map((titleStr, idx) => {
+                  {parsedSimilarList.map((titleStr, idx) => {
                     const match = similarMediaDetails.find((d) => d.title.toLowerCase().trim() === titleStr.toLowerCase().trim());
                     const currentCover = match?.customCover || '';
                     return (
