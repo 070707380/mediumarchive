@@ -52,7 +52,7 @@ const CREATOR_CATEGORIES: CreatorCategory[] = [
   'Other'
 ];
 
-export const AdminMediaModal: React.FC<AdminMediaModalProps> = ({
+const AdminMediaModalComponent: React.FC<AdminMediaModalProps> = ({
   isOpen,
   itemToEdit,
   allItems = [],
@@ -112,12 +112,36 @@ export const AdminMediaModal: React.FC<AdminMediaModalProps> = ({
 
   // Defer cover preview so keystrokes remain instantaneous without image pipeline blocking
   const deferredCover = React.useDeferredValue(cover);
+  const deferredSimilarMediaStr = React.useDeferredValue(similarMediaStr);
+  const deferredMediumInfluencesStr = React.useDeferredValue(mediumInfluencesStr);
+  const deferredMainCreator = React.useDeferredValue(mainCreator);
 
   // Collect all known genre tags across items for auto-correction
   const existingGenresPool = React.useMemo(() => {
     const set = new Set<string>();
     allItems.forEach((i) => i.genres?.forEach((g) => set.add(g.trim())));
     return Array.from(set);
+  }, [allItems]);
+
+  // Pre-memoize select options so hundreds of DOM elements are not recreated on every keystroke
+  const targetMediaOptions = React.useMemo(() => {
+    return allItems
+      .filter((i) => i.mediaFormat !== 'Music Album' && i.id !== itemToEdit?.id)
+      .map((item) => (
+        <option key={item.id} value={item.id}>
+          {item.title} ({item.mediaFormat} - {item.mainCreator})
+        </option>
+      ));
+  }, [allItems, itemToEdit?.id]);
+
+  const soundtrackAlbumOptions = React.useMemo(() => {
+    return allItems
+      .filter((i) => i.mediaFormat === 'Music Album')
+      .map((album) => (
+        <option key={album.id} value={album.id}>
+          {album.title} (by {album.mainCreator})
+        </option>
+      ));
   }, [allItems]);
 
   // Memoize filtered tag suggestions to prevent recalculation on every keystroke in other fields
@@ -136,12 +160,12 @@ export const AdminMediaModal: React.FC<AdminMediaModalProps> = ({
   }, [newStyleTag, existingStyleTags]);
 
   const parsedInfluenceList = React.useMemo(() => {
-    return mediumInfluencesStr.split(',').map((s) => s.trim()).filter(Boolean);
-  }, [mediumInfluencesStr]);
+    return deferredMediumInfluencesStr.split(',').map((s) => s.trim()).filter(Boolean);
+  }, [deferredMediumInfluencesStr]);
 
   const parsedSimilarList = React.useMemo(() => {
-    return similarMediaStr.split(',').map((s) => s.trim()).filter(Boolean);
-  }, [similarMediaStr]);
+    return deferredSimilarMediaStr.split(',').map((s) => s.trim()).filter(Boolean);
+  }, [deferredSimilarMediaStr]);
 
   const [pendingLinkMatches, setPendingLinkMatches] = useState<{
     id: string;
@@ -276,10 +300,10 @@ export const AdminMediaModal: React.FC<AdminMediaModalProps> = ({
     }
   }, [itemToEdit, isOpen]);
 
-  // Compute known band members across the entire database for the current mainCreator
+  // Compute known band members across the entire database for the current mainCreator (deferred to keep typing instantaneous)
   const knownBandMembers = React.useMemo<BandMember[]>(() => {
-    if (!mainCreator || !allItems) return [];
-    const bandNameLower = mainCreator.toLowerCase().trim();
+    if (!deferredMainCreator || !allItems) return [];
+    const bandNameLower = deferredMainCreator.toLowerCase().trim();
     const map = new Map<string, BandMember>();
 
     allItems.forEach((item) => {
@@ -296,7 +320,7 @@ export const AdminMediaModal: React.FC<AdminMediaModalProps> = ({
     });
 
     return Array.from(map.values());
-  }, [mainCreator, allItems]);
+  }, [deferredMainCreator, allItems]);
 
   const handleAddBandMember = () => {
     setBandMembers([
@@ -1069,13 +1093,7 @@ export const AdminMediaModal: React.FC<AdminMediaModalProps> = ({
                     className="w-full bg-slate-900 border border-purple-700/60 rounded-lg px-3 py-2 text-xs sm:text-sm text-slate-100 focus:outline-none focus:border-purple-400 font-mono"
                   >
                     <option value="">-- Select Target Entry (Film, Video Game, TV Show, etc.) --</option>
-                    {allItems
-                      .filter((i) => i.mediaFormat !== 'Music Album' && i.id !== itemToEdit?.id)
-                      .map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.title} ({item.mediaFormat} - {item.mainCreator})
-                        </option>
-                      ))}
+                    {targetMediaOptions}
                   </select>
 
                   <div className="pt-1">
@@ -1136,13 +1154,7 @@ export const AdminMediaModal: React.FC<AdminMediaModalProps> = ({
                         className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-100 font-mono"
                       >
                         <option value="">-- Select Music Album from DB --</option>
-                        {allItems
-                          .filter((i) => i.mediaFormat === 'Music Album')
-                          .map((album) => (
-                            <option key={album.id} value={album.id}>
-                              {album.title} (by {album.mainCreator})
-                            </option>
-                          ))}
+                        {soundtrackAlbumOptions}
                       </select>
 
                       <input
@@ -1250,9 +1262,9 @@ export const AdminMediaModal: React.FC<AdminMediaModalProps> = ({
                   type="text"
                   placeholder="Creator Bio Wikipedia URL..."
                   value={mainCreatorWiki}
-                  onChange={async (e) => {
-                    const val = e.target.value;
-                    setMainCreatorWiki(val);
+                  onChange={(e) => setMainCreatorWiki(e.target.value)}
+                  onBlur={async () => {
+                    const val = mainCreatorWiki.trim();
                     if (val.includes('wikipedia.org') && (!mainCreatorPhoto || isWikipediaArticleUrl(mainCreatorPhoto))) {
                       const img = await fetchWikipediaImage(val);
                       if (img) setMainCreatorPhoto(img);
@@ -1270,14 +1282,7 @@ export const AdminMediaModal: React.FC<AdminMediaModalProps> = ({
                   type="text"
                   placeholder="Creator Portrait URL or Wikipedia Link..."
                   value={mainCreatorPhoto}
-                  onChange={async (e) => {
-                    const val = e.target.value;
-                    setMainCreatorPhoto(val);
-                    if (isWikipediaArticleUrl(val)) {
-                      const img = await fetchWikipediaImage(val);
-                      if (img) setMainCreatorPhoto(img);
-                    }
-                  }}
+                  onChange={(e) => setMainCreatorPhoto(e.target.value)}
                   onBlur={async () => {
                     if (mainCreatorPhoto.trim() && isWikipediaArticleUrl(mainCreatorPhoto)) {
                       const img = await fetchWikipediaImage(mainCreatorPhoto);
@@ -2220,3 +2225,5 @@ Roger Taylor (Drummer, Vocalist)"
     </div>
   );
 };
+
+export const AdminMediaModal = React.memo(AdminMediaModalComponent);
