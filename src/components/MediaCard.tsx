@@ -71,7 +71,9 @@ export const MediaCardComponent: React.FC<MediaCardProps> = ({
   };
 
   const parsedYear = extractReleaseYear(item.releaseDate);
-  const releaseYear = parsedYear ? String(parsedYear) : (item.releaseDate ? item.releaseDate.substring(0, 4) : 'N/A');
+  const releaseYear = parsedYear !== null
+    ? (parsedYear < 0 ? `${Math.abs(parsedYear)} BCE` : String(parsedYear))
+    : (item.releaseDate ? item.releaseDate.substring(0, 4) : 'N/A');
 
   const genres = item.genres || [];
   const styleTags = item.genreStyleTags || [];

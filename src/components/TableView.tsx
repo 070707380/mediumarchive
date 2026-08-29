@@ -21,6 +21,7 @@ import {
   Check
 } from 'lucide-react';
 import { downloadMediaItemCardPng } from '../utils/downloadUtils';
+import { formatReleaseYear } from '../utils/dateUtils';
 
 interface TableViewProps {
   items: MediaItem[];
@@ -287,7 +288,7 @@ export const TableView: React.FC<TableViewProps> = ({
           <tbody className="divide-y divide-slate-800">
             {displayItems.map((item, idx) => {
               const rowNum = String(idx + 1).padStart(3, '0');
-              const releaseYear = item.releaseDate ? item.releaseDate.slice(0, 4) : '—';
+              const releaseYear = formatReleaseYear(item.releaseDate);
               const genres = item.genres || [];
               const styleTags = item.genreStyleTags || [];
               const prosCount = Array.isArray(item.pros) ? item.pros.length : 0;

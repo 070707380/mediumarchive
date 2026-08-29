@@ -343,18 +343,24 @@ export default function App() {
       // 3.5. Release Year & Decade Filtering
       const itemYear = extractReleaseYear(item.releaseDate);
 
-      if (filters.releaseYearStart !== null && filters.releaseYearStart > 0) {
+      if (filters.releaseYearStart !== null && typeof filters.releaseYearStart === 'number' && !isNaN(filters.releaseYearStart)) {
         if (itemYear === null || itemYear < filters.releaseYearStart) return false;
       }
 
-      if (filters.releaseYearEnd !== null && filters.releaseYearEnd > 0) {
+      if (filters.releaseYearEnd !== null && typeof filters.releaseYearEnd === 'number' && !isNaN(filters.releaseYearEnd)) {
         if (itemYear === null || itemYear > filters.releaseYearEnd) return false;
       }
 
       if (filters.selectedDecades && filters.selectedDecades.length > 0) {
         if (itemYear === null) return false;
         const itemDecade = getDecadeFromYear(itemYear);
-        if (!filters.selectedDecades.includes(itemDecade)) return false;
+        const selectedDecadesNorm = filters.selectedDecades.map((d) => d.toLowerCase().trim());
+        const isMatch =
+          selectedDecadesNorm.includes(itemDecade.toLowerCase()) ||
+          (itemDecade === '1500s' && selectedDecadesNorm.includes('1500')) ||
+          (itemDecade === 'BCE' && (selectedDecadesNorm.includes('bce') || selectedDecadesNorm.includes('bc'))) ||
+          (itemYear < 1800 && selectedDecadesNorm.includes('pre-1800s'));
+        if (!isMatch) return false;
       }
 
       // 4. Philosophical Tags Filtering
