@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   MediaFormat,
   MediaItem,
@@ -27,11 +27,9 @@ import {
   Tag,
   Award,
   User,
-  Globe,
   Flag,
   Languages,
-  Disc,
-  Users
+  Disc
 } from 'lucide-react';
 
 interface AdminMediaModalProps {
@@ -59,80 +57,199 @@ const CREATOR_CATEGORIES: CreatorCategory[] = [
   'Other'
 ];
 
+interface FormDataShape {
+  cover: string;
+  title: string;
+  mainCreator: string;
+  mainCreatorCategory: CreatorCategory;
+  mainCreatorWiki: string;
+  mainCreatorPhoto: string;
+  creatorNation: string;
+  bandMembers: BandMember[];
+  otherCreatorsStr: string;
+  mediaFormat: MediaFormat;
+  releaseDate: string;
+  countryOfOrigin: string;
+  originalLanguage: string;
+  genresStr: string;
+  philosophicalTags: string[];
+  genreStyleTags: string[];
+  summaryPlot: string;
+  pros: string[];
+  cons: string[];
+  hornetScore: number;
+  hornetVerdict: string;
+  similarMediaStr: string;
+  similarMediaDetails: MediaRelationEntry[];
+  mediumInfluencesStr: string;
+  mediumInfluencesDetails: MediaRelationEntry[];
+  consumedVersion: string;
+  links: MediaLink[];
+  isCustomCategory: boolean;
+  customCategoryName: string;
+  isSoundtrack: boolean;
+  soundtrackForId: string;
+  soundtrackForTitle: string;
+  soundtrackEntries: { id?: string; title: string }[];
+}
+
+function getDefaultFormData(itemToEdit: MediaItem | null): FormDataShape {
+  if (itemToEdit) {
+    const primaryDetail = itemToEdit.creatorDetails?.[0];
+    const { canonicalFormat, isCustom: detectedCustom } = normalizeMediaFormat(
+      itemToEdit.customCategoryName || itemToEdit.mediaFormat
+    );
+    const isCustom = Boolean(itemToEdit.isCustomCategory && detectedCustom);
+
+    const smTitles: string[] = [];
+    const smDetails: MediaRelationEntry[] = [];
+    if (itemToEdit.similarMedia) {
+      itemToEdit.similarMedia.forEach((sm) => {
+        if (typeof sm === 'string') {
+          smTitles.push(sm);
+        } else {
+          smTitles.push(sm.title);
+          smDetails.push(sm);
+        }
+      });
+    }
+
+    const miTitles: string[] = [];
+    const miDetails: MediaRelationEntry[] = [];
+    if (itemToEdit.mediumInfluences) {
+      itemToEdit.mediumInfluences.forEach((mi) => {
+        if (typeof mi === 'string') {
+          miTitles.push(mi);
+        } else {
+          miTitles.push(mi.title);
+          miDetails.push(mi);
+        }
+      });
+    }
+
+    let existingSoundtracks: { id?: string; title: string }[] = [];
+    if (itemToEdit.soundtracks && itemToEdit.soundtracks.length > 0) {
+      existingSoundtracks = itemToEdit.soundtracks.map((s) => ({ ...s }));
+    } else if (itemToEdit.soundtrackId || itemToEdit.soundtrackTitle) {
+      existingSoundtracks = [{ id: itemToEdit.soundtrackId, title: itemToEdit.soundtrackTitle || '' }];
+    }
+
+    return {
+      cover: itemToEdit.cover || '',
+      title: itemToEdit.title || '',
+      mainCreator: itemToEdit.mainCreator || '',
+      mainCreatorCategory: primaryDetail?.category || 'Author',
+      mainCreatorWiki: primaryDetail?.wikiUrl || '',
+      mainCreatorPhoto: primaryDetail?.photoUrl || '',
+      creatorNation: primaryDetail?.nation || '',
+      bandMembers: primaryDetail?.bandMembers ? [...primaryDetail.bandMembers] : [],
+      otherCreatorsStr: itemToEdit.otherCreators?.join(', ') || '',
+      mediaFormat: isCustom ? 'Custom Category' : canonicalFormat,
+      releaseDate: itemToEdit.releaseDate || '',
+      countryOfOrigin: itemToEdit.countryOfOrigin || '',
+      originalLanguage: itemToEdit.originalLanguage || '',
+      genresStr: itemToEdit.genres?.join(', ') || '',
+      philosophicalTags: itemToEdit.philosophicalTags ? [...itemToEdit.philosophicalTags] : [],
+      genreStyleTags: (itemToEdit.genreStyleTags || []).map((t) => t.toLowerCase()),
+      summaryPlot: itemToEdit.summaryPlot || '',
+      pros: itemToEdit.pros && itemToEdit.pros.length > 0 ? [...itemToEdit.pros] : [''],
+      cons: itemToEdit.cons && itemToEdit.cons.length > 0 ? [...itemToEdit.cons] : [''],
+      hornetScore: itemToEdit.hornetScore ?? 9,
+      hornetVerdict: itemToEdit.hornetVerdict || '',
+      similarMediaStr: smTitles.join(', '),
+      similarMediaDetails: smDetails,
+      mediumInfluencesStr: miTitles.join(', '),
+      mediumInfluencesDetails: miDetails,
+      consumedVersion: itemToEdit.consumedVersion || '',
+      links: itemToEdit.links && itemToEdit.links.length > 0 ? itemToEdit.links.map((l) => ({ ...l })) : [
+        { id: 'l1', label: 'Product Wikipedia / Store Page', url: '' }
+      ],
+      isCustomCategory: isCustom,
+      customCategoryName: itemToEdit.customCategoryName || (isCustom ? itemToEdit.mediaFormat : ''),
+      isSoundtrack: Boolean(itemToEdit.isSoundtrack || itemToEdit.soundtrackForId || itemToEdit.soundtrackForTitle),
+      soundtrackForId: itemToEdit.soundtrackForId || '',
+      soundtrackForTitle: itemToEdit.soundtrackForTitle || '',
+      soundtrackEntries: existingSoundtracks
+    };
+  }
+
+  return {
+    cover: '',
+    title: '',
+    mainCreator: '',
+    mainCreatorCategory: 'Game Designer',
+    mainCreatorWiki: '',
+    mainCreatorPhoto: '',
+    creatorNation: '',
+    bandMembers: [],
+    otherCreatorsStr: '',
+    mediaFormat: 'Video Game',
+    releaseDate: new Date().toISOString().substring(0, 10),
+    countryOfOrigin: '',
+    originalLanguage: '',
+    genresStr: '',
+    philosophicalTags: [],
+    genreStyleTags: [],
+    summaryPlot: '',
+    pros: [''],
+    cons: [''],
+    hornetScore: 9,
+    hornetVerdict: '',
+    similarMediaStr: '',
+    similarMediaDetails: [],
+    mediumInfluencesStr: '',
+    mediumInfluencesDetails: [],
+    consumedVersion: '',
+    links: [{ id: 'l1', label: 'Product Wikipedia / Store Page', url: '' }],
+    isCustomCategory: false,
+    customCategoryName: '',
+    isSoundtrack: false,
+    soundtrackForId: '',
+    soundtrackForTitle: '',
+    soundtrackEntries: []
+  };
+}
+
 /* =========================================================================
-   MEMOIZED SUB-SECTIONS TO GUARANTEE 0MS INSTANT TYPING ACROSS ALL FIELDS
+   MEMOIZED ISOLATED FAST SUB-SECTIONS (0ms typing latency)
    ========================================================================= */
 
-// 1. Modal Header
-const ModalHeader = React.memo<{
-  isEditing: boolean;
-  onQuickSample: () => void;
-  onClose: () => void;
-}>(({ isEditing, onQuickSample, onClose }) => {
-  return (
-    <div className="flex items-center justify-between px-6 py-4 bg-slate-950 border-b border-slate-800 shrink-0">
-      <div className="flex items-center gap-2">
-        <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400">
-          <Wand2 size={18} />
-        </div>
-        <div>
-          <h3 className="text-base sm:text-lg font-bold font-mono text-slate-100">
-            {isEditing ? 'EDIT MEDIA ARCHIVE ENTRY' : 'ADD NEW MEDIA ARCHIVE ENTRY'}
-          </h3>
-          <p className="text-xs text-slate-400 font-sans">
-            Admin Control Panel
-          </p>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={onQuickSample}
-          className="px-3 py-1.5 rounded-lg bg-indigo-950/70 hover:bg-indigo-900/80 text-indigo-300 border border-indigo-700/50 text-xs font-mono flex items-center gap-1 transition cursor-pointer"
-          title="Autofill sample fields"
-        >
-          <Wand2 size={13} />
-          <span className="hidden sm:inline">Fill Sample</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={onClose}
-          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition cursor-pointer"
-        >
-          <X size={18} />
-        </button>
-      </div>
-    </div>
-  );
-});
-
-// 2. Cover Section
+// 1. Cover Section
 const CoverSection = React.memo<{
-  cover: string;
-  onChangeCover: (val: string) => void;
-}>(({ cover, onChangeCover }) => {
-  const [previewSrc, setPreviewSrc] = useState(cover);
+  initialCover: string;
+  onUpdate: (val: string) => void;
+}>(({ initialCover, onUpdate }) => {
+  const [val, setVal] = useState(initialCover);
+  const [previewSrc, setPreviewSrc] = useState(initialCover);
 
   useEffect(() => {
-    setPreviewSrc(cover);
-  }, [cover]);
+    setVal(initialCover);
+    setPreviewSrc(initialCover);
+  }, [initialCover]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const next = e.target.value;
+    setVal(next);
+    setPreviewSrc(next);
+    onUpdate(next);
+  };
 
   const handleBlur = async () => {
-    const trimmed = cover.trim();
+    const trimmed = val.trim();
     if (trimmed) {
       if (isWikipediaArticleUrl(trimmed)) {
         const wikiImg = await fetchWikipediaImage(trimmed);
         if (wikiImg) {
-          onChangeCover(wikiImg);
+          setVal(wikiImg);
           setPreviewSrc(wikiImg);
+          onUpdate(wikiImg);
           return;
         }
       }
       const formatted = formatImageUrl(trimmed);
-      onChangeCover(formatted);
+      setVal(formatted);
       setPreviewSrc(formatted);
+      onUpdate(formatted);
     }
   };
 
@@ -149,11 +266,8 @@ const CoverSection = React.memo<{
       <input
         type="text"
         placeholder="Paste image link, Wikipedia article link, or data URL..."
-        value={cover}
-        onChange={(e) => {
-          onChangeCover(e.target.value);
-          setPreviewSrc(e.target.value);
-        }}
+        value={val}
+        onChange={handleChange}
         onBlur={handleBlur}
         className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500 font-mono"
       />
@@ -186,34 +300,42 @@ const CoverSection = React.memo<{
   );
 });
 
-// 3. Basic Info Section (Title, Format, Custom Category, Country, Language)
+// 2. Basic Info Section (Title, Format, Custom Category, Country, Language)
 const BasicInfoSection = React.memo<{
-  title: string;
-  onChangeTitle: (val: string) => void;
-  mediaFormat: MediaFormat;
-  onChangeMediaFormat: (fmt: MediaFormat) => void;
-  isCustomCategory: boolean;
-  onChangeIsCustomCategory: (val: boolean) => void;
-  customCategoryName: string;
-  onChangeCustomCategoryName: (val: string) => void;
-  countryOfOrigin: string;
-  onChangeCountryOfOrigin: (val: string) => void;
-  originalLanguage: string;
-  onChangeOriginalLanguage: (val: string) => void;
+  initialTitle: string;
+  initialFormat: MediaFormat;
+  initialIsCustom: boolean;
+  initialCustomName: string;
+  initialCountry: string;
+  initialLanguage: string;
+  onUpdateField: (field: string, val: any) => void;
+  onFormatChange: (fmt: MediaFormat, isCustom: boolean) => void;
 }>(({
-  title,
-  onChangeTitle,
-  mediaFormat,
-  onChangeMediaFormat,
-  isCustomCategory,
-  onChangeIsCustomCategory,
-  customCategoryName,
-  onChangeCustomCategoryName,
-  countryOfOrigin,
-  onChangeCountryOfOrigin,
-  originalLanguage,
-  onChangeOriginalLanguage
+  initialTitle,
+  initialFormat,
+  initialIsCustom,
+  initialCustomName,
+  initialCountry,
+  initialLanguage,
+  onUpdateField,
+  onFormatChange
 }) => {
+  const [title, setTitle] = useState(initialTitle);
+  const [format, setFormat] = useState<MediaFormat>(initialFormat);
+  const [isCustom, setIsCustom] = useState(initialIsCustom);
+  const [customName, setCustomName] = useState(initialCustomName);
+  const [country, setCountry] = useState(initialCountry);
+  const [lang, setLang] = useState(initialLanguage);
+
+  useEffect(() => {
+    setTitle(initialTitle);
+    setFormat(initialFormat);
+    setIsCustom(initialIsCustom);
+    setCustomName(initialCustomName);
+    setCountry(initialCountry);
+    setLang(initialLanguage);
+  }, [initialTitle, initialFormat, initialIsCustom, initialCustomName, initialCountry, initialLanguage]);
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -226,7 +348,10 @@ const BasicInfoSection = React.memo<{
             required
             placeholder="e.g. NieR: Automata, Dune, Disco Elysium..."
             value={title}
-            onChange={(e) => onChangeTitle(e.target.value)}
+            onChange={(e) => {
+              setTitle(e.target.value);
+              onUpdateField('title', e.target.value);
+            }}
             className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs sm:text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
           />
         </div>
@@ -236,16 +361,16 @@ const BasicInfoSection = React.memo<{
             Media Format / Category *
           </label>
           <select
-            value={isCustomCategory ? 'Custom Category' : mediaFormat}
+            value={isCustom ? 'Custom Category' : format}
             onChange={(e) => {
               const val = e.target.value;
-              if (val === 'Custom Category') {
-                onChangeIsCustomCategory(true);
-                onChangeMediaFormat('Custom Category');
-              } else {
-                onChangeIsCustomCategory(false);
-                onChangeMediaFormat(val as MediaFormat);
-              }
+              const custom = val === 'Custom Category';
+              setIsCustom(custom);
+              const nextFmt = custom ? 'Custom Category' : (val as MediaFormat);
+              setFormat(nextFmt);
+              onUpdateField('isCustomCategory', custom);
+              onUpdateField('mediaFormat', nextFmt);
+              onFormatChange(nextFmt, custom);
             }}
             className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs sm:text-sm text-slate-100 focus:outline-none focus:border-amber-500 font-mono"
           >
@@ -264,15 +389,18 @@ const BasicInfoSection = React.memo<{
           <input
             type="text"
             placeholder="e.g. Japan, France, USA..."
-            value={countryOfOrigin}
-            onChange={(e) => onChangeCountryOfOrigin(e.target.value)}
+            value={country}
+            onChange={(e) => {
+              setCountry(e.target.value);
+              onUpdateField('countryOfOrigin', e.target.value);
+            }}
             className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs sm:text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
           />
         </div>
       </div>
 
       {/* Custom Category Details Input */}
-      {isCustomCategory && (
+      {isCustom && (
         <div className="p-3.5 rounded-xl bg-amber-950/30 border border-amber-500/50 space-y-2 font-mono animate-fade-in">
           <label className="block text-xs font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
             <Tag size={14} className="text-amber-400" />
@@ -282,8 +410,11 @@ const BasicInfoSection = React.memo<{
             type="text"
             required
             placeholder="e.g. Song Review, Boss Fight, Character, Random Review..."
-            value={customCategoryName}
-            onChange={(e) => onChangeCustomCategoryName(e.target.value)}
+            value={customName}
+            onChange={(e) => {
+              setCustomName(e.target.value);
+              onUpdateField('customCategoryName', e.target.value);
+            }}
             className="w-full bg-slate-950 border border-amber-500/60 rounded-lg px-3 py-2 text-xs sm:text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-400 font-mono"
           />
           <p className="text-[10px] text-amber-300/90 leading-relaxed">
@@ -300,8 +431,11 @@ const BasicInfoSection = React.memo<{
           <input
             type="text"
             placeholder="e.g. Japanese, French, English, Polish..."
-            value={originalLanguage}
-            onChange={(e) => onChangeOriginalLanguage(e.target.value)}
+            value={lang}
+            onChange={(e) => {
+              setLang(e.target.value);
+              onUpdateField('originalLanguage', e.target.value);
+            }}
             className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs sm:text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
           />
         </div>
@@ -310,34 +444,56 @@ const BasicInfoSection = React.memo<{
   );
 });
 
-// 4. Soundtrack Section
+// 3. Soundtrack Section
 const SoundtrackSection = React.memo<{
   mediaFormat: MediaFormat;
-  isSoundtrack: boolean;
-  onChangeIsSoundtrack: (val: boolean) => void;
-  soundtrackForId: string;
-  onChangeSoundtrackForId: (id: string, title?: string) => void;
-  soundtrackForTitle: string;
-  onChangeSoundtrackForTitle: (val: string) => void;
-  soundtrackEntries: { id?: string; title: string }[];
-  onChangeSoundtrackEntries: (entries: { id?: string; title: string }[]) => void;
-  targetMediaOptions: React.ReactNode;
-  soundtrackAlbumOptions: React.ReactNode;
+  initialIsSoundtrack: boolean;
+  initialSoundtrackForId: string;
+  initialSoundtrackForTitle: string;
+  initialSoundtrackEntries: { id?: string; title: string }[];
   allItems: MediaItem[];
+  onUpdateField: (field: string, val: any) => void;
 }>(({
   mediaFormat,
-  isSoundtrack,
-  onChangeIsSoundtrack,
-  soundtrackForId,
-  onChangeSoundtrackForId,
-  soundtrackForTitle,
-  onChangeSoundtrackForTitle,
-  soundtrackEntries,
-  onChangeSoundtrackEntries,
-  targetMediaOptions,
-  soundtrackAlbumOptions,
-  allItems
+  initialIsSoundtrack,
+  initialSoundtrackForId,
+  initialSoundtrackForTitle,
+  initialSoundtrackEntries,
+  allItems,
+  onUpdateField
 }) => {
+  const [isSoundtrack, setIsSoundtrack] = useState(initialIsSoundtrack);
+  const [soundtrackForId, setSoundtrackForId] = useState(initialSoundtrackForId);
+  const [soundtrackForTitle, setSoundtrackForTitle] = useState(initialSoundtrackForTitle);
+  const [soundtrackEntries, setSoundtrackEntries] = useState(initialSoundtrackEntries);
+
+  useEffect(() => {
+    setIsSoundtrack(initialIsSoundtrack);
+    setSoundtrackForId(initialSoundtrackForId);
+    setSoundtrackForTitle(initialSoundtrackForTitle);
+    setSoundtrackEntries(initialSoundtrackEntries);
+  }, [initialIsSoundtrack, initialSoundtrackForId, initialSoundtrackForTitle, initialSoundtrackEntries]);
+
+  const targetMediaOptions = useMemo(() => {
+    return allItems
+      .filter((i) => i.mediaFormat !== 'Music Album')
+      .map((item) => (
+        <option key={item.id} value={item.id}>
+          {item.title} ({item.mediaFormat} - {item.mainCreator})
+        </option>
+      ));
+  }, [allItems]);
+
+  const soundtrackAlbumOptions = useMemo(() => {
+    return allItems
+      .filter((i) => i.mediaFormat === 'Music Album')
+      .map((album) => (
+        <option key={album.id} value={album.id}>
+          {album.title} (by {album.mainCreator})
+        </option>
+      ));
+  }, [allItems]);
+
   if (mediaFormat === 'Music Album') {
     return (
       <div className="p-4 rounded-xl bg-purple-950/40 border border-purple-800/60 space-y-3 font-mono animate-fade-in">
@@ -350,66 +506,61 @@ const SoundtrackSection = React.memo<{
               Is this album an official original soundtrack (OST) for a film, game, TV show, anime, or book?
             </p>
           </div>
-
-          <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-lg border border-slate-800 shrink-0 self-start sm:self-auto">
-            <button
-              type="button"
-              onClick={() => {
-                onChangeIsSoundtrack(false);
-                onChangeSoundtrackForId('');
-                onChangeSoundtrackForTitle('');
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isSoundtrack}
+              onChange={(e) => {
+                const next = e.target.checked;
+                setIsSoundtrack(next);
+                onUpdateField('isSoundtrack', next);
               }}
-              className={`px-3 py-1 text-xs font-bold rounded-md transition cursor-pointer ${
-                !isSoundtrack
-                  ? 'bg-slate-800 text-slate-200 shadow'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              No
-            </button>
-            <button
-              type="button"
-              onClick={() => onChangeIsSoundtrack(true)}
-              className={`px-3 py-1 text-xs font-bold rounded-md transition cursor-pointer ${
-                isSoundtrack
-                  ? 'bg-purple-600 text-white shadow'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Yes
-            </button>
-          </div>
+              className="rounded bg-slate-900 border-slate-700 text-purple-500 focus:ring-purple-500"
+            />
+            <span className="text-xs font-bold text-purple-300">Yes, it is a soundtrack</span>
+          </label>
         </div>
 
         {isSoundtrack && (
-          <div className="pt-3 border-t border-purple-900/50 space-y-2.5 animate-fade-in">
+          <div className="pt-2 border-t border-purple-900/60 space-y-2">
             <label className="block text-xs font-bold uppercase tracking-wider text-purple-200">
-              Add the entry (Select media entry this album is soundtrack for):
+              Soundtrack For (Media Work):
             </label>
-            <select
-              value={soundtrackForId}
-              onChange={(e) => {
-                const selectedId = e.target.value;
-                const found = allItems.find((i) => i.id === selectedId);
-                onChangeSoundtrackForId(selectedId, found?.title);
-              }}
-              className="w-full bg-slate-900 border border-purple-700/60 rounded-lg px-3 py-2 text-xs sm:text-sm text-slate-100 focus:outline-none focus:border-purple-400 font-mono"
-            >
-              <option value="">-- Select Target Entry (Film, Video Game, TV Show, etc.) --</option>
-              {targetMediaOptions}
-            </select>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <span className="text-[10px] text-slate-400 block mb-1">Select from existing catalog:</span>
+                <select
+                  value={soundtrackForId}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    const matched = allItems.find((i) => i.id === id);
+                    setSoundtrackForId(id);
+                    onUpdateField('soundtrackForId', id);
+                    if (matched) {
+                      setSoundtrackForTitle(matched.title);
+                      onUpdateField('soundtrackForTitle', matched.title);
+                    }
+                  }}
+                  className="w-full bg-slate-900 border border-purple-800/80 rounded px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-purple-400 font-mono"
+                >
+                  <option value="">-- Choose Existing Media --</option>
+                  {targetMediaOptions}
+                </select>
+              </div>
 
-            <div className="pt-1">
-              <label className="block text-[10px] text-slate-400 mb-1">
-                Or specify parent media title manually if not yet logged in database:
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. Interstellar, Cyberpunk 2077..."
-                value={soundtrackForTitle}
-                onChange={(e) => onChangeSoundtrackForTitle(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 font-mono"
-              />
+              <div>
+                <span className="text-[10px] text-slate-400 block mb-1">Or type title manually:</span>
+                <input
+                  type="text"
+                  placeholder="e.g. NieR: Automata, Dune, Solaris..."
+                  value={soundtrackForTitle}
+                  onChange={(e) => {
+                    setSoundtrackForTitle(e.target.value);
+                    onUpdateField('soundtrackForTitle', e.target.value);
+                  }}
+                  className="w-full bg-slate-900 border border-purple-800/80 rounded px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-purple-400 font-mono"
+                />
+              </div>
             </div>
           </div>
         )}
@@ -418,134 +569,173 @@ const SoundtrackSection = React.memo<{
   }
 
   return (
-    <div className="p-4 rounded-xl bg-indigo-950/30 border border-indigo-800/50 space-y-3 font-mono">
-      <div className="flex items-center justify-between gap-2">
+    <div className="p-4 rounded-xl bg-purple-950/30 border border-purple-800/50 space-y-3 font-mono">
+      <div className="flex items-center justify-between">
         <div>
-          <label className="text-xs font-bold uppercase tracking-wider text-indigo-300 flex items-center gap-1.5">
-            <Disc size={15} /> Official Soundtrack Albums (OSTs)
+          <label className="text-xs font-bold uppercase tracking-wider text-purple-300 flex items-center gap-1.5">
+            <Disc size={15} /> Associated Soundtrack Albums (OSTs)
           </label>
           <p className="text-[11px] text-slate-400 font-sans mt-0.5">
-            Link one or more official soundtrack albums associated with this media (e.g. Vol. 1, Original Score, Expansion OST).
+            Link one or more official soundtrack albums associated with this media.
           </p>
         </div>
         <button
           type="button"
-          onClick={() => onChangeSoundtrackEntries([...soundtrackEntries, { title: '' }])}
-          className="px-2.5 py-1 text-xs font-bold bg-indigo-900/60 hover:bg-indigo-800 text-indigo-200 rounded-lg border border-indigo-700/60 transition shrink-0 flex items-center gap-1 cursor-pointer"
+          onClick={() => {
+            const next = [...soundtrackEntries, { title: '' }];
+            setSoundtrackEntries(next);
+            onUpdateField('soundtrackEntries', next);
+          }}
+          className="text-xs font-mono text-purple-400 hover:text-purple-300 flex items-center gap-1 cursor-pointer"
         >
-          <Plus size={13} /> Add OST
+          <Plus size={13} /> Add Soundtrack Album
         </button>
       </div>
 
-      {soundtrackEntries.length > 0 && (
-        <div className="space-y-2 pt-1">
-          {soundtrackEntries.map((st, idx) => (
-            <div key={idx} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 bg-slate-950/80 p-2 rounded-lg border border-slate-800">
+      <div className="space-y-2">
+        {soundtrackEntries.map((st, idx) => (
+          <div key={`st-${idx}`} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 p-2.5 rounded-lg bg-slate-950/60 border border-purple-900/40">
+            <div className="flex-1">
+              <span className="text-[10px] text-slate-400 block mb-0.5">Select existing music album:</span>
               <select
                 value={st.id || ''}
                 onChange={(e) => {
-                  const val = e.target.value;
-                  const found = allItems.find((i) => i.id === val);
-                  const updated = [...soundtrackEntries];
-                  if (found) {
-                    updated[idx] = { id: found.id, title: found.title };
-                  } else {
-                    updated[idx] = { ...updated[idx], id: undefined };
-                  }
-                  onChangeSoundtrackEntries(updated);
+                  const id = e.target.value;
+                  const album = allItems.find((i) => i.id === id);
+                  const next = [...soundtrackEntries];
+                  next[idx] = { id: id || undefined, title: album ? album.title : next[idx].title };
+                  setSoundtrackEntries(next);
+                  onUpdateField('soundtrackEntries', next);
                 }}
-                className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-100 font-mono"
+                className="w-full bg-slate-900 border border-purple-900/80 rounded px-2 py-1 text-xs text-slate-100 focus:outline-none focus:border-purple-400 font-mono"
               >
-                <option value="">-- Select Music Album from DB --</option>
+                <option value="">-- Choose Album from Archive --</option>
                 {soundtrackAlbumOptions}
               </select>
+            </div>
 
+            <div className="flex-1">
+              <span className="text-[10px] text-slate-400 block mb-0.5">Or enter album name:</span>
               <input
                 type="text"
-                placeholder="Or type album title manually..."
+                placeholder="e.g. NieR:Automata OST, Volume 1..."
                 value={st.title}
                 onChange={(e) => {
-                  const updated = [...soundtrackEntries];
-                  updated[idx] = { ...updated[idx], title: e.target.value };
-                  onChangeSoundtrackEntries(updated);
+                  const next = [...soundtrackEntries];
+                  next[idx] = { ...next[idx], title: e.target.value };
+                  setSoundtrackEntries(next);
+                  onUpdateField('soundtrackEntries', next);
                 }}
-                className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 placeholder-slate-600 font-mono"
+                className="w-full bg-slate-900 border border-purple-900/80 rounded px-2 py-1 text-xs text-slate-100 focus:outline-none focus:border-purple-400 font-mono"
               />
+            </div>
 
+            <div className="flex items-end pb-0.5 justify-end">
               <button
                 type="button"
                 onClick={() => {
-                  onChangeSoundtrackEntries(soundtrackEntries.filter((_, i) => i !== idx));
+                  const next = soundtrackEntries.filter((_, i) => i !== idx);
+                  setSoundtrackEntries(next);
+                  onUpdateField('soundtrackEntries', next);
                 }}
-                className="p-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800/50 transition self-end sm:self-auto cursor-pointer"
-                title="Remove OST"
+                className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer"
+                title="Remove soundtrack entry"
               >
-                <Trash2 size={13} />
+                <Trash2 size={15} />
               </button>
             </div>
-          ))}
-        </div>
-      )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 });
 
-// 5. Creator Profile Section
+// 4. Creator Profile Section
 const CreatorSection = React.memo<{
-  mainCreator: string;
-  onChangeMainCreator: (val: string) => void;
-  mainCreatorCategory: CreatorCategory;
-  onChangeMainCreatorCategory: (cat: CreatorCategory) => void;
-  creatorNation: string;
-  onChangeCreatorNation: (val: string) => void;
-  mainCreatorWiki: string;
-  onChangeMainCreatorWiki: (val: string) => void;
-  mainCreatorPhoto: string;
-  onChangeMainCreatorPhoto: (val: string) => void;
+  initialMainCreator: string;
+  initialCategory: CreatorCategory;
+  initialNation: string;
+  initialWiki: string;
+  initialPhoto: string;
+  onUpdateField: (field: string, val: any) => void;
+  onCategoryChange: (cat: CreatorCategory) => void;
+  onMainCreatorChange: (val: string) => void;
 }>(({
-  mainCreator,
-  onChangeMainCreator,
-  mainCreatorCategory,
-  onChangeMainCreatorCategory,
-  creatorNation,
-  onChangeCreatorNation,
-  mainCreatorWiki,
-  onChangeMainCreatorWiki,
-  mainCreatorPhoto,
-  onChangeMainCreatorPhoto
+  initialMainCreator,
+  initialCategory,
+  initialNation,
+  initialWiki,
+  initialPhoto,
+  onUpdateField,
+  onCategoryChange,
+  onMainCreatorChange
 }) => {
+  const [creator, setCreator] = useState(initialMainCreator);
+  const [category, setCategory] = useState<CreatorCategory>(initialCategory);
+  const [nation, setNation] = useState(initialNation);
+  const [wiki, setWiki] = useState(initialWiki);
+  const [photo, setPhoto] = useState(initialPhoto);
+
+  useEffect(() => {
+    setCreator(initialMainCreator);
+    setCategory(initialCategory);
+    setNation(initialNation);
+    setWiki(initialWiki);
+    setPhoto(initialPhoto);
+  }, [initialMainCreator, initialCategory, initialNation, initialWiki, initialPhoto]);
+
   return (
-    <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-4">
-      <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
-        <User size={16} className="text-amber-400" />
-        <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-slate-200">
-          Creator Profile & Wikipedia Reference
-        </h4>
+    <div className="p-4 rounded-xl bg-slate-950/70 border border-slate-800 space-y-4">
+      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+        <label className="text-xs font-mono font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+          <User size={14} /> Main Creator Profile
+        </label>
+        <span className="text-[10px] font-mono text-slate-400">
+          Main creator bio data & global catalog linkage
+        </span>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div>
-          <label className="block text-xs font-mono font-bold text-slate-300 mb-1">
+          <label className="block text-xs font-mono font-bold uppercase tracking-wider text-slate-300 mb-1">
             Creator Name *
           </label>
           <input
             type="text"
             required
-            placeholder="e.g. Stanisław Lem, Yoko Taro..."
-            value={mainCreator}
-            onChange={(e) => onChangeMainCreator(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs sm:text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-sans"
+            placeholder="e.g. Yoko Taro, Denis Villeneuve..."
+            value={creator}
+            onChange={(e) => {
+              setCreator(e.target.value);
+              onUpdateField('mainCreator', e.target.value);
+              onMainCreatorChange(e.target.value);
+            }}
+            onBlur={() => {
+              if (creator.trim() && !wiki.trim()) {
+                const cleanName = creator.split('/')[0].trim();
+                const autoWiki = `https://en.wikipedia.org/wiki/${encodeURIComponent(cleanName)}`;
+                setWiki(autoWiki);
+                onUpdateField('mainCreatorWiki', autoWiki);
+              }
+            }}
+            className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-xs sm:text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
           />
         </div>
 
         <div>
-          <label className="block text-xs font-mono font-bold text-slate-300 mb-1">
-            Creator Category *
+          <label className="block text-xs font-mono font-bold uppercase tracking-wider text-slate-300 mb-1">
+            Creator Role *
           </label>
           <select
-            value={mainCreatorCategory}
-            onChange={(e) => onChangeMainCreatorCategory(e.target.value as CreatorCategory)}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs sm:text-sm text-slate-100 focus:outline-none focus:border-amber-500 font-mono"
+            value={category}
+            onChange={(e) => {
+              const nextCat = e.target.value as CreatorCategory;
+              setCategory(nextCat);
+              onUpdateField('mainCreatorCategory', nextCat);
+              onCategoryChange(nextCat);
+            }}
+            className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-xs sm:text-sm text-slate-100 focus:outline-none focus:border-amber-500 font-mono"
           >
             {CREATOR_CATEGORIES.map((cat) => (
               <option key={cat} value={cat}>
@@ -556,68 +746,52 @@ const CreatorSection = React.memo<{
         </div>
 
         <div>
-          <label className="block text-xs font-mono font-bold text-slate-300 mb-1 flex items-center gap-1">
-            <Flag size={12} className="text-amber-400" /> Creator Nation
+          <label className="block text-xs font-mono font-bold uppercase tracking-wider text-slate-300 mb-1 flex items-center gap-1">
+            <Flag size={11} className="text-amber-400" /> Nationality
           </label>
           <input
             type="text"
-            placeholder="e.g. Poland, Japan, UK..."
-            value={creatorNation}
-            onChange={(e) => onChangeCreatorNation(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
+            placeholder="e.g. Japanese, Canadian..."
+            value={nation}
+            onChange={(e) => {
+              setNation(e.target.value);
+              onUpdateField('creatorNation', e.target.value);
+            }}
+            className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-xs sm:text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+        <div>
+          <label className="block text-xs font-mono font-bold uppercase tracking-wider text-slate-300 mb-1 flex items-center gap-1">
+            <LinkIcon size={11} className="text-cyan-400" /> Wikipedia / Official Bio URL
+          </label>
+          <input
+            type="text"
+            placeholder="https://en.wikipedia.org/wiki/..."
+            value={wiki}
+            onChange={(e) => {
+              setWiki(e.target.value);
+              onUpdateField('mainCreatorWiki', e.target.value);
+            }}
+            className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-cyan-500 font-mono"
           />
         </div>
 
         <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-xs font-mono font-bold text-slate-300 flex items-center gap-1">
-              <Globe size={12} className="text-amber-400" /> Creator Wikipedia
-            </label>
-            {mainCreatorWiki && (
-              <button
-                type="button"
-                onClick={async () => {
-                  const img = await fetchWikipediaImage(mainCreatorWiki);
-                  if (img) onChangeMainCreatorPhoto(img);
-                }}
-                className="text-[10px] font-mono text-amber-400 hover:text-amber-300 underline cursor-pointer"
-              >
-                Pull Wiki Image
-              </button>
-            )}
-          </div>
-          <input
-            type="text"
-            placeholder="Creator Bio Wikipedia URL..."
-            value={mainCreatorWiki}
-            onChange={(e) => onChangeMainCreatorWiki(e.target.value)}
-            onBlur={async () => {
-              const val = mainCreatorWiki.trim();
-              if (val.includes('wikipedia.org') && (!mainCreatorPhoto || isWikipediaArticleUrl(mainCreatorPhoto))) {
-                const img = await fetchWikipediaImage(val);
-                if (img) onChangeMainCreatorPhoto(img);
-              }
-            }}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
-          />
-        </div>
-
-        <div>
-          <label className="block text-xs font-mono font-bold text-slate-300 mb-1 flex items-center gap-1">
-            <ImageIcon size={12} className="text-amber-400" /> Photo URL
+          <label className="block text-xs font-mono font-bold uppercase tracking-wider text-slate-300 mb-1 flex items-center gap-1">
+            <ImageIcon size={11} className="text-amber-400" /> Portrait / Photo URL
           </label>
           <input
             type="text"
-            placeholder="Creator Portrait URL or Wikipedia Link..."
-            value={mainCreatorPhoto}
-            onChange={(e) => onChangeMainCreatorPhoto(e.target.value)}
-            onBlur={async () => {
-              if (mainCreatorPhoto.trim() && isWikipediaArticleUrl(mainCreatorPhoto)) {
-                const img = await fetchWikipediaImage(mainCreatorPhoto);
-                if (img) onChangeMainCreatorPhoto(img);
-              }
+            placeholder="Direct photo link (optional)..."
+            value={photo}
+            onChange={(e) => {
+              setPhoto(e.target.value);
+              onUpdateField('mainCreatorPhoto', e.target.value);
             }}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
+            className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
           />
         </div>
       </div>
@@ -625,1276 +799,20 @@ const CreatorSection = React.memo<{
   );
 });
 
-// 6. Band Lineup & Roster Section
+// 5. Band Lineup Section
 const BandLineupSection = React.memo<{
   mainCreator: string;
-  bandMembers: BandMember[];
-  knownBandMembers: BandMember[];
-  onAddBandMember: () => void;
-  onAddPresetMember: (role: string) => void;
-  onUpdateBandMember: (index: number, field: keyof BandMember, value: any) => void;
-  onRemoveBandMember: (index: number) => void;
-  onImportBulkText: (text: string) => void;
-  onImportKnownMember: (member: BandMember, participated: boolean) => void;
-  onImportAllKnownMembers: (participated: boolean) => void;
-}>(({
-  mainCreator,
-  bandMembers,
-  knownBandMembers,
-  onAddBandMember,
-  onAddPresetMember,
-  onUpdateBandMember,
-  onRemoveBandMember,
-  onImportBulkText,
-  onImportKnownMember,
-  onImportAllKnownMembers
-}) => {
-  const [showBulkInput, setShowBulkInput] = useState(false);
+  initialBandMembers: BandMember[];
+  allItems: MediaItem[];
+  onUpdateMembers: (members: BandMember[]) => void;
+}>(({ mainCreator, initialBandMembers, allItems, onUpdateMembers }) => {
+  const [members, setMembers] = useState<BandMember[]>(initialBandMembers);
   const [bulkText, setBulkText] = useState('');
 
-  const handleApplyBulk = () => {
-    if (!bulkText.trim()) return;
-    onImportBulkText(bulkText);
-    setBulkText('');
-    setShowBulkInput(false);
-  };
-
-  return (
-    <div className="p-4 rounded-2xl bg-amber-950/20 border border-amber-500/30 space-y-4 animate-fade-in">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-amber-500/20 pb-3">
-        <div className="flex items-center gap-2">
-          <Users size={18} className="text-amber-400" />
-          <div>
-            <h5 className="text-xs font-mono font-bold uppercase tracking-wider text-amber-300">
-              Band Roster & Lineup for this Product ({bandMembers.length})
-            </h5>
-            <p className="text-[11px] font-mono text-slate-400">
-              Specify members, multi-roles (e.g. "Guitarist, Vocalist, Director"), and whether they worked on this release.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-1.5 self-end sm:self-center">
-          <button
-            type="button"
-            onClick={() => setShowBulkInput(!showBulkInput)}
-            className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 font-mono text-xs transition flex items-center gap-1 cursor-pointer"
-          >
-            <Plus size={12} />
-            <span>{showBulkInput ? 'Close Bulk' : 'Bulk Paste'}</span>
-          </button>
-
-          {knownBandMembers.length > 0 && (
-            <button
-              type="button"
-              onClick={() => onImportAllKnownMembers(true)}
-              className="px-2.5 py-1 rounded bg-amber-950/60 hover:bg-amber-900/80 text-amber-300 border border-amber-500/40 font-mono text-xs transition flex items-center gap-1 cursor-pointer"
-            >
-              <Users size={12} />
-              <span>Add All Known ({knownBandMembers.length})</span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={onAddBandMember}
-            className="px-3 py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-mono font-bold text-xs transition flex items-center gap-1 shadow cursor-pointer"
-          >
-            <Plus size={13} />
-            <span>Add Member</span>
-          </button>
-        </div>
-      </div>
-
-      {/* KNOWN BAND MEMBERS FROM DATABASE */}
-      {knownBandMembers.length > 0 && (
-        <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-mono font-bold text-amber-400/90 uppercase tracking-wide flex items-center gap-1.5">
-              <Users size={12} />
-              <span>Known Members of "{mainCreator}" in database</span>
-            </span>
-            <span className="text-[10px] font-mono text-slate-500">
-              Click to toggle participation for this product
-            </span>
-          </div>
-
-          <div className="flex flex-wrap gap-1.5 pt-1">
-            {knownBandMembers.map((km, kIdx) => {
-              const existing = bandMembers.find(
-                (bm) => bm.name.toLowerCase().trim() === km.name.toLowerCase().trim()
-              );
-              const isAdded = !!existing;
-              const worked = existing ? existing.participatedInProduct !== false : false;
-
-              return (
-                <div
-                  key={kIdx}
-                  className={`px-2.5 py-1 rounded-lg border text-xs font-mono flex items-center gap-2 transition ${
-                    isAdded
-                      ? worked
-                        ? 'bg-amber-950/50 border-amber-500/50 text-amber-200'
-                        : 'bg-slate-900 border-slate-700 text-slate-400'
-                      : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-amber-500/40'
-                  }`}
-                >
-                  <span className="font-bold">{km.name}</span>
-                  <span className="text-[10px] text-slate-400">({km.bandRole || 'Member'})</span>
-
-                  <div className="flex items-center gap-1 ml-1">
-                    <button
-                      type="button"
-                      onClick={() => onImportKnownMember(km, true)}
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
-                        isAdded && worked
-                          ? 'bg-amber-500 text-slate-950'
-                          : 'bg-slate-800 hover:bg-amber-500/30 text-amber-300'
-                      }`}
-                      title="Set as Worked on this product"
-                    >
-                      Worked
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onImportKnownMember(km, false)}
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
-                        isAdded && !worked
-                          ? 'bg-rose-900 text-rose-200'
-                          : 'bg-slate-800 hover:bg-rose-900/40 text-slate-400'
-                      }`}
-                      title="Set as Unworked on this product"
-                    >
-                      Unworked
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* BULK PASTE INPUT AREA */}
-      {showBulkInput && (
-        <div className="p-3 bg-slate-950 rounded-xl border border-amber-500/40 space-y-2 animate-fade-in">
-          <label className="block text-xs font-mono font-bold text-amber-300">
-            Bulk Paste Members List
-          </label>
-          <p className="text-[11px] font-mono text-slate-400">
-            Format example: <code className="text-amber-200">Freddie Mercury (Guitarist, Vocalist, Director), Brian May (Lead Guitar, Vocals)</code>
-            <br />
-            Commas inside parentheses are preserved as a single member's multi-role list!
-          </p>
-          <textarea
-            rows={3}
-            placeholder="Paste comma or newline separated members e.g.&#10;Freddie Mercury (Vocalist, Pianist, Director),&#10;Brian May (Guitarist, Vocalist),&#10;Roger Taylor (Drummer, Vocalist)"
-            value={bulkText}
-            onChange={(e) => setBulkText(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
-          />
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setShowBulkInput(false)}
-              className="px-3 py-1 rounded bg-slate-800 text-slate-400 hover:text-slate-200 text-xs font-mono cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleApplyBulk}
-              className="px-3 py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs font-mono cursor-pointer"
-            >
-              Parse & Add Roster
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* CURRENT BAND MEMBERS LIST */}
-      {bandMembers.length === 0 ? (
-        <div className="p-4 bg-slate-900/60 rounded-xl border border-dashed border-amber-500/30 text-center space-y-2">
-          <p className="text-xs font-mono text-amber-300/80">No members added to this band lineup yet.</p>
-          <div className="flex flex-wrap justify-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => onAddPresetMember('Vocalist')}
-              className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 font-mono text-xs border border-slate-700 cursor-pointer"
-            >
-              + Vocalist
-            </button>
-            <button
-              type="button"
-              onClick={() => onAddPresetMember('Guitarist, Vocalist')}
-              className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 font-mono text-xs border border-slate-700 cursor-pointer"
-            >
-              + Guitarist, Vocalist
-            </button>
-            <button
-              type="button"
-              onClick={() => onAddPresetMember('Bass Player')}
-              className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 font-mono text-xs border border-slate-700 cursor-pointer"
-            >
-              + Bass Player
-            </button>
-            <button
-              type="button"
-              onClick={() => onAddPresetMember('Drummer')}
-              className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 font-mono text-xs border border-slate-700 cursor-pointer"
-            >
-              + Drummer
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {bandMembers.map((member, idx) => (
-            <div
-              key={idx}
-              className="p-3.5 rounded-xl border bg-slate-900 border-slate-800 hover:border-amber-500/40 space-y-2.5 transition"
-            >
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center">
-                {/* Member Name */}
-                <div className="sm:col-span-5">
-                  <label className="block text-[10px] font-mono text-slate-400 mb-0.5">
-                    Member Name
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Freddie Mercury"
-                    value={member.name}
-                    onChange={(e) => onUpdateBandMember(idx, 'name', e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
-                  />
-                </div>
-
-                {/* Band Role */}
-                <div className="sm:col-span-6">
-                  <label className="block text-[10px] font-mono text-slate-400 mb-0.5">
-                    Role in Band (e.g. "Guitarist, Vocalist, Director")
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Lead Vocalist, Pianist, Director"
-                    value={member.bandRole}
-                    onChange={(e) => onUpdateBandMember(idx, 'bandRole', e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
-                  />
-                </div>
-
-                {/* Remove Button */}
-                <div className="sm:col-span-1 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => onRemoveBandMember(idx)}
-                    className="p-1.5 rounded hover:bg-rose-900/50 text-rose-400 hover:text-rose-200 transition cursor-pointer"
-                    title="Remove member from roster"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              </div>
-
-              {/* Specific Product Role */}
-              <div className="pl-3 border-l-2 border-amber-500/40 pt-1">
-                <label className="block text-[10px] font-mono text-amber-400 mb-0.5">
-                  Specific Role on this product (optional)
-                </label>
-                <input
-                  type="text"
-                  placeholder={`e.g. Lead Vocals, Piano, Director (Default: ${member.bandRole || 'Band Role'})`}
-                  value={member.productRole || ''}
-                  onChange={(e) => onUpdateBandMember(idx, 'productRole', e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-xs text-amber-200 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
-                />
-              </div>
-            </div>
-          ))}
-
-          <div className="flex justify-end pt-1">
-            <button
-              type="button"
-              onClick={onAddBandMember}
-              className="text-xs font-mono text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
-            >
-              <Plus size={12} /> Add another member
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-});
-
-// 7. Release & Secondary Creators Section
-const ReleaseAndOtherCreatorsSection = React.memo<{
-  otherCreatorsStr: string;
-  onChangeOtherCreatorsStr: (val: string) => void;
-  releaseDate: string;
-  onChangeReleaseDate: (val: string) => void;
-  consumedVersion: string;
-  onChangeConsumedVersion: (val: string) => void;
-}>(({
-  otherCreatorsStr,
-  onChangeOtherCreatorsStr,
-  releaseDate,
-  onChangeReleaseDate,
-  consumedVersion,
-  onChangeConsumedVersion
-}) => {
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-xs font-mono font-bold text-slate-300 mb-1">
-            Other Associated Creators (e.g. "Hiroyuki Owaku/Scriptwriter, Yuka Kitamura/Composer")
-          </label>
-          <input
-            type="text"
-            placeholder="e.g. Hiroyuki Owaku/Scriptwriter, Yuka Kitamura/Composer..."
-            value={otherCreatorsStr}
-            onChange={(e) => onChangeOtherCreatorsStr(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs sm:text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500"
-          />
-        </div>
-
-        <div>
-          <label className="block text-xs font-mono font-bold text-slate-300 mb-1">
-            Release Date *
-          </label>
-          <input
-            type="text"
-            placeholder="YYYY-MM-DD or YYYY"
-            value={releaseDate}
-            onChange={(e) => onChangeReleaseDate(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs sm:text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
-          />
-        </div>
-      </div>
-
-      <div>
-        <label className="block text-xs font-mono font-bold text-purple-300 mb-1">
-          Consumed Version / Platform (e.g. Vinyl, Digital, PS2, PSP, Nintendo 64...)
-        </label>
-        <input
-          type="text"
-          placeholder="e.g. PS2, PSP, Nintendo 64, Vinyl, Digital, PC..."
-          value={consumedVersion}
-          onChange={(e) => onChangeConsumedVersion(e.target.value)}
-          className="w-full bg-slate-900 border border-purple-500/40 rounded-lg px-3 py-2 text-xs sm:text-sm text-purple-100 placeholder-slate-600 focus:outline-none focus:border-purple-400 font-mono"
-        />
-      </div>
-    </div>
-  );
-});
-
-// 8. Genres & Tags Section
-const GenresAndTagsSection = React.memo<{
-  genresStr: string;
-  onChangeGenresStr: (val: string) => void;
-  philosophicalTags: string[];
-  onAddPhiloTag: (tag?: string, forceOriginal?: boolean) => void;
-  onRemovePhiloTag: (tag: string) => void;
-  existingPhilosophicalTags: string[];
-  genreStyleTags: string[];
-  onAddStyleTag: (tag?: string, forceOriginal?: boolean) => void;
-  onRemoveStyleTag: (tag: string) => void;
-  existingStyleTags: string[];
-}>(({
-  genresStr,
-  onChangeGenresStr,
-  philosophicalTags,
-  onAddPhiloTag,
-  onRemovePhiloTag,
-  existingPhilosophicalTags,
-  genreStyleTags,
-  onAddStyleTag,
-  onRemoveStyleTag,
-  existingStyleTags
-}) => {
-  const [newPhiloTag, setNewPhiloTag] = useState('');
-  const [newStyleTag, setNewStyleTag] = useState('');
-
-  const filteredPhiloTags = useMemo(() => {
-    if (!existingPhilosophicalTags || existingPhilosophicalTags.length === 0) return [];
-    const query = newPhiloTag.trim().toLowerCase();
-    if (!query) return existingPhilosophicalTags.slice(0, 40);
-    return existingPhilosophicalTags.filter((t) => t.toLowerCase().includes(query)).slice(0, 40);
-  }, [newPhiloTag, existingPhilosophicalTags]);
-
-  const filteredStyleTags = useMemo(() => {
-    if (!existingStyleTags || existingStyleTags.length === 0) return [];
-    const query = newStyleTag.trim().toLowerCase();
-    if (!query) return existingStyleTags.slice(0, 40);
-    return existingStyleTags.filter((t) => t.toLowerCase().includes(query)).slice(0, 40);
-  }, [newStyleTag, existingStyleTags]);
-
-  const handlePhiloAdd = (tagToAdd?: string, forceOriginal?: boolean) => {
-    onAddPhiloTag(tagToAdd || newPhiloTag, forceOriginal);
-    setNewPhiloTag('');
-  };
-
-  const handleStyleAdd = (tagToAdd?: string, forceOriginal?: boolean) => {
-    onAddStyleTag(tagToAdd || newStyleTag, forceOriginal);
-    setNewStyleTag('');
-  };
-
-  return (
-    <div className="space-y-4">
-      {/* Main Genres */}
-      <div>
-        <label className="block text-xs font-mono font-bold uppercase tracking-wider text-amber-400 mb-1">
-          Main Genres (Primary Work Classification • Comma separated)
-        </label>
-        <input
-          type="text"
-          placeholder="e.g. Slapstick, Action RPG, Science Fiction, Dark Fantasy"
-          value={genresStr}
-          onChange={(e) => onChangeGenresStr(e.target.value)}
-          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs sm:text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
-        />
-        <p className="text-[10px] font-mono text-slate-400 mt-1">
-          Main overarching genres defining the core identity of the entry.
-        </p>
-      </div>
-
-      {/* Philosophical Tags Input */}
-      <div className="p-4 rounded-xl bg-indigo-950/20 border border-indigo-900/40 space-y-3">
-        <div className="flex items-center justify-between">
-          <label className="block text-xs font-mono font-bold uppercase tracking-wider text-indigo-400">
-            Philosophical Tags
-          </label>
-          <span className="text-[10px] font-mono text-indigo-300/70">
-            Preserves exact text
-          </span>
-        </div>
-
-        <div className="flex gap-2">
-          <input
-            type="text"
-            placeholder="Add custom philosophical tag (Press Enter)..."
-            value={newPhiloTag}
-            onChange={(e) => setNewPhiloTag(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                handlePhiloAdd();
-              }
-            }}
-            className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono"
-          />
-          <button
-            type="button"
-            onClick={() => handlePhiloAdd()}
-            className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-mono text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-          >
-            <Plus size={13} /> Add
-          </button>
-        </div>
-
-        {/* Explicit Add Original button */}
-        {newPhiloTag.trim() !== '' && (
-          <div className="flex items-center gap-2 p-2 bg-slate-900/90 rounded-lg border border-indigo-500/40 text-xs font-mono animate-fade-in">
-            <span className="text-slate-400 text-[11px]">User Input:</span>
-            <button
-              type="button"
-              onClick={() => handlePhiloAdd(newPhiloTag.trim(), true)}
-              className="px-2.5 py-1 rounded bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 border border-indigo-500/50 font-bold text-xs transition flex items-center gap-1.5 cursor-pointer"
-              title="Add exact original text without any autocorrect"
-            >
-              <Plus size={12} className="text-indigo-400" />
-              <span>Add Original: "{newPhiloTag.trim()}"</span>
-            </button>
-          </div>
-        )}
-
-        {/* Existing tags quick picker */}
-        {filteredPhiloTags.length > 0 && (
-          <div className="space-y-1">
-            <span className="text-[10px] font-mono text-slate-400">Quick select existing tags:</span>
-            <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto">
-              {filteredPhiloTags.map((t, idx) => (
-                <button
-                  key={`exist-philo-${t}-${idx}`}
-                  type="button"
-                  onClick={() => handlePhiloAdd(t)}
-                  className="px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-950/80 hover:bg-indigo-900 text-indigo-300 border border-indigo-800/60 transition cursor-pointer"
-                >
-                  + {t}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Selected Tags list */}
-        <div className="flex flex-wrap gap-1.5 pt-1">
-          {philosophicalTags.map((tag, idx) => (
-            <span
-              key={`selected-philo-${tag}-${idx}`}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-indigo-600 text-white text-xs font-mono font-medium shadow"
-            >
-              <span>{tag}</span>
-              <button
-                type="button"
-                onClick={() => onRemovePhiloTag(tag)}
-                className="hover:text-rose-300 cursor-pointer"
-              >
-                <X size={12} />
-              </button>
-            </span>
-          ))}
-        </div>
-      </div>
-
-      {/* Elements, Reference & Style Tags */}
-      <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="text-xs font-mono font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
-            <Tag size={13} /> Elements, Reference & Style Tags
-          </div>
-          <span className="text-[10px] font-mono text-emerald-300/70">
-            Secondary attributes (lowercase)
-          </span>
-        </div>
-
-        <p className="text-[10px] font-mono text-slate-400">
-          Used when a genre or style is used as an element or reference rather than being the main genre of the work (e.g. slapstick element, cyberpunk aesthetic, time loop).
-        </p>
-
-        <div className="flex gap-2">
-          <input
-            type="text"
-            placeholder="Add style tag (e.g. slapstick element, gore, cyberpunk)..."
-            value={newStyleTag}
-            onChange={(e) => setNewStyleTag(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                handleStyleAdd();
-              }
-            }}
-            className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-sans"
-          />
-          <button
-            type="button"
-            onClick={() => handleStyleAdd()}
-            className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-xs font-bold transition flex items-center gap-1 cursor-pointer"
-          >
-            <Plus size={13} /> Add
-          </button>
-        </div>
-
-        {newStyleTag.trim() !== '' && (
-          <div className="flex items-center gap-2 p-2 bg-slate-900/90 rounded-lg border border-emerald-500/40 text-xs font-mono animate-fade-in">
-            <span className="text-slate-400 text-[11px]">User Input:</span>
-            <button
-              type="button"
-              onClick={() => handleStyleAdd(newStyleTag.trim(), true)}
-              className="px-2.5 py-1 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 border border-emerald-500/50 font-bold text-xs transition flex items-center gap-1.5 cursor-pointer"
-              title="Add exact original text as entered"
-            >
-              <Plus size={12} className="text-emerald-400" />
-              <span>Add Original: "{newStyleTag.trim().toLowerCase()}"</span>
-            </button>
-          </div>
-        )}
-
-        {filteredStyleTags.length > 0 && (
-          <div className="space-y-1">
-            <span className="text-[10px] font-mono text-slate-400">Quick select existing tags:</span>
-            <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto">
-              {filteredStyleTags.map((t, idx) => (
-                <button
-                  key={`exist-style-${t}-${idx}`}
-                  type="button"
-                  onClick={() => handleStyleAdd(t)}
-                  className="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-900 hover:bg-slate-800 text-emerald-300 border border-emerald-900/60 transition cursor-pointer"
-                >
-                  + {t}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div className="flex flex-wrap gap-1.5 pt-1">
-          {genreStyleTags.map((tag, idx) => (
-            <span
-              key={`selected-style-${tag}-${idx}`}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-700 text-white text-xs font-sans font-medium"
-            >
-              <span>{tag}</span>
-              <button
-                type="button"
-                onClick={() => onRemoveStyleTag(tag)}
-                className="hover:text-rose-300 cursor-pointer"
-              >
-                <X size={12} />
-              </button>
-            </span>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-});
-
-// 9. Review & Scoring Section (Summary Plot, Score Slider, Verdict)
-const ReviewAndScoringSection = React.memo<{
-  summaryPlot: string;
-  onChangeSummaryPlot: (val: string) => void;
-  hornetScore: number;
-  onChangeHornetScore: (val: number) => void;
-  hornetVerdict: string;
-  onChangeHornetVerdict: (val: string) => void;
-}>(({
-  summaryPlot,
-  onChangeSummaryPlot,
-  hornetScore,
-  onChangeHornetScore,
-  hornetVerdict,
-  onChangeHornetVerdict
-}) => {
-  const levelInfo = useMemo(() => getScoreLevelInfo(hornetScore), [hornetScore]);
-
-  return (
-    <div className="space-y-6">
-      {/* Summary Plot / Premise */}
-      <div>
-        <label className="block text-xs font-mono font-bold uppercase tracking-wider text-slate-300 mb-1">
-          Summary Plot & Premise
-        </label>
-        <textarea
-          rows={3}
-          placeholder="Enter a brief summary plot, central narrative premise, or thematic overview..."
-          value={summaryPlot}
-          onChange={(e) => onChangeSummaryPlot(e.target.value)}
-          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs sm:text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-sans"
-        />
-      </div>
-
-      {/* Hornet's 10-Point Score & Verdict */}
-      <div className="p-4 rounded-xl bg-amber-950/20 border border-amber-500/30 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="space-y-1">
-            <label className="text-xs font-mono font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
-              <Award size={15} /> Hornet's Score (1 to 10 Scale)
-            </label>
-            <div className="flex items-center gap-2">
-              <span className={`text-sm font-bold font-mono ${levelInfo.color}`}>
-                {hornetScore}/10 — {levelInfo.label}
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <input
-              type="range"
-              min="1"
-              max="10"
-              step="1"
-              value={hornetScore}
-              onChange={(e) => onChangeHornetScore(Number(e.target.value))}
-              className="w-40 accent-amber-500 bg-slate-800 cursor-pointer"
-            />
-            <input
-              type="number"
-              min="1"
-              max="10"
-              step="1"
-              value={hornetScore}
-              onChange={(e) => onChangeHornetScore(Number(e.target.value))}
-              className="w-16 bg-slate-950 border border-amber-500/50 rounded px-2 py-1 text-center font-mono font-bold text-amber-300 text-sm"
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-xs font-mono font-bold uppercase tracking-wider text-slate-300 mb-1">
-            Hornet's Verdict / Quick Commentary
-          </label>
-          <textarea
-            rows={2}
-            placeholder="A brief 1-2 sentence core evaluation..."
-            value={hornetVerdict}
-            onChange={(e) => onChangeHornetVerdict(e.target.value)}
-            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs sm:text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-sans"
-          />
-        </div>
-      </div>
-    </div>
-  );
-});
-
-// 10. Pros & Cons Section
-const ProsAndConsSection = React.memo<{
-  pros: string[];
-  onAddPro: () => void;
-  onUpdatePro: (index: number, val: string) => void;
-  onRemovePro: (index: number) => void;
-  cons: string[];
-  onAddCon: () => void;
-  onUpdateCon: (index: number, val: string) => void;
-  onRemoveCon: (index: number) => void;
-}>(({
-  pros,
-  onAddPro,
-  onUpdatePro,
-  onRemovePro,
-  cons,
-  onAddCon,
-  onUpdateCon,
-  onRemoveCon
-}) => {
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      {/* Pros */}
-      <div className="p-4 rounded-xl bg-emerald-950/20 border border-emerald-500/30 space-y-3">
-        <div className="flex items-center justify-between">
-          <label className="text-xs font-mono font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1">
-            <CheckCircle2 size={14} /> Pros (Strengths)
-          </label>
-          <button
-            type="button"
-            onClick={onAddPro}
-            className="text-xs font-mono text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
-          >
-            <Plus size={12} /> Add Pro
-          </button>
-        </div>
-
-        <div className="space-y-2">
-          {pros.map((pro, idx) => (
-            <div key={`pro-${idx}`} className="flex items-center gap-2">
-              <input
-                type="text"
-                placeholder={`Strength #${idx + 1} (Press Enter to add next)...`}
-                value={pro}
-                onChange={(e) => onUpdatePro(idx, e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    onAddPro();
-                    setTimeout(() => {
-                      const inputs = document.querySelectorAll<HTMLInputElement>('.pro-input-field');
-                      if (inputs && inputs[idx + 1]) {
-                        inputs[idx + 1].focus();
-                      }
-                    }, 50);
-                  }
-                }}
-                className="pro-input-field flex-1 bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
-              />
-              <button
-                type="button"
-                onClick={() => onRemovePro(idx)}
-                className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer"
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Cons */}
-      <div className="p-4 rounded-xl bg-rose-950/20 border border-rose-500/30 space-y-3">
-        <div className="flex items-center justify-between">
-          <label className="text-xs font-mono font-bold uppercase tracking-wider text-rose-400 flex items-center gap-1">
-            <XCircle size={14} /> Cons (Flaws)
-          </label>
-          <button
-            type="button"
-            onClick={onAddCon}
-            className="text-xs font-mono text-rose-400 hover:underline flex items-center gap-1 cursor-pointer"
-          >
-            <Plus size={12} /> Add Con
-          </button>
-        </div>
-
-        <div className="space-y-2">
-          {cons.map((con, idx) => (
-            <div key={`con-${idx}`} className="flex items-center gap-2">
-              <input
-                type="text"
-                placeholder={`Critique #${idx + 1} (Press Enter to add next)...`}
-                value={con}
-                onChange={(e) => onUpdateCon(idx, e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    onAddCon();
-                    setTimeout(() => {
-                      const inputs = document.querySelectorAll<HTMLInputElement>('.con-input-field');
-                      if (inputs && inputs[idx + 1]) {
-                        inputs[idx + 1].focus();
-                      }
-                    }, 50);
-                  }
-                }}
-                className="con-input-field flex-1 bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-rose-500"
-              />
-              <button
-                type="button"
-                onClick={() => onRemoveCon(idx)}
-                className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer"
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-});
-
-// 11. Relations Section (Medium Influences & Similar Media)
-const RelationsSection = React.memo<{
-  mediumInfluencesStr: string;
-  onChangeMediumInfluencesStr: (val: string) => void;
-  mediumInfluencesDetails: MediaRelationEntry[];
-  onChangeMediumInfluencesDetails: (details: MediaRelationEntry[]) => void;
-  similarMediaStr: string;
-  onChangeSimilarMediaStr: (val: string) => void;
-  similarMediaDetails: MediaRelationEntry[];
-  onChangeSimilarMediaDetails: (details: MediaRelationEntry[]) => void;
-}>(({
-  mediumInfluencesStr,
-  onChangeMediumInfluencesStr,
-  mediumInfluencesDetails,
-  onChangeMediumInfluencesDetails,
-  similarMediaStr,
-  onChangeSimilarMediaStr,
-  similarMediaDetails,
-  onChangeSimilarMediaDetails
-}) => {
-  const parsedInfluenceList = useMemo(() => {
-    return mediumInfluencesStr.split(',').map((s) => s.trim()).filter(Boolean);
-  }, [mediumInfluencesStr]);
-
-  const parsedSimilarList = useMemo(() => {
-    return similarMediaStr.split(',').map((s) => s.trim()).filter(Boolean);
-  }, [similarMediaStr]);
-
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      {/* Medium Influences */}
-      <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3">
-        <div>
-          <label className="block text-xs font-mono font-bold uppercase tracking-wider text-amber-400 mb-1">
-            Medium Influences & Inspirations (Comma separated)
-          </label>
-          <p className="text-[11px] font-mono text-slate-400 mb-2">
-            Enter name-drops or media that directly influenced this work. If the media exists in the archive, clicking its thumbnail in bios leads to its detail view. Uncataloged media automatically interconnects once added!
-          </p>
-          <input
-            type="text"
-            placeholder="e.g. Crime and Punishment, Solaris, Akira, Neuromancer..."
-            value={mediumInfluencesStr}
-            onChange={(e) => onChangeMediumInfluencesStr(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
-          />
-        </div>
-
-        {/* Optional Custom Cover attachment for Influences */}
-        {parsedInfluenceList.length > 0 && (
-          <div className="space-y-2 pt-1 border-t border-slate-800">
-            <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider font-bold">
-              Custom Covers for Uncataloged Influences (Optional)
-            </span>
-            {parsedInfluenceList.map((titleStr, idx) => {
-              const match = mediumInfluencesDetails.find((d) => d.title.toLowerCase().trim() === titleStr.toLowerCase().trim());
-              const currentCover = match?.customCover || '';
-              return (
-                <div key={`inf-cov-${idx}`} className="flex items-center gap-2">
-                  <span className="text-xs font-mono text-amber-300 w-28 truncate shrink-0" title={titleStr}>
-                    {titleStr}:
-                  </span>
-                  <input
-                    type="text"
-                    placeholder="Image URL for custom picture..."
-                    value={currentCover}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      const updated = [...mediumInfluencesDetails];
-                      const existingIdx = updated.findIndex((d) => d.title.toLowerCase().trim() === titleStr.toLowerCase().trim());
-                      if (existingIdx >= 0) {
-                        updated[existingIdx] = { ...updated[existingIdx], customCover: val };
-                      } else {
-                        updated.push({ title: titleStr, customCover: val });
-                      }
-                      onChangeMediumInfluencesDetails(updated);
-                    }}
-                    className="flex-1 bg-slate-900 border border-slate-800 rounded px-2 py-1 text-[11px] font-mono text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Similar Media */}
-      <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3">
-        <div>
-          <label className="block text-xs font-mono font-bold uppercase tracking-wider text-cyan-400 mb-1">
-            Similar Media & References (Comma separated)
-          </label>
-          <p className="text-[11px] font-mono text-slate-400 mb-2">
-            Enter similar media titles. You can attach pictures now for works not yet in the archive. Once cataloged, they automatically link together!
-          </p>
-          <input
-            type="text"
-            placeholder="e.g. Ghost in the Shell, SOMA, Planescape..."
-            value={similarMediaStr}
-            onChange={(e) => onChangeSimilarMediaStr(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-cyan-500 font-mono"
-          />
-        </div>
-
-        {/* Optional Custom Cover attachment for Similar Media */}
-        {parsedSimilarList.length > 0 && (
-          <div className="space-y-2 pt-1 border-t border-slate-800">
-            <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider font-bold">
-              Custom Covers for Uncataloged Similar Media
-            </span>
-            {parsedSimilarList.map((titleStr, idx) => {
-              const match = similarMediaDetails.find((d) => d.title.toLowerCase().trim() === titleStr.toLowerCase().trim());
-              const currentCover = match?.customCover || '';
-              return (
-                <div key={`sim-cov-${idx}`} className="flex items-center gap-2">
-                  <span className="text-xs font-mono text-cyan-300 w-28 truncate shrink-0" title={titleStr}>
-                    {titleStr}:
-                  </span>
-                  <input
-                    type="text"
-                    placeholder="Image URL for custom picture..."
-                    value={currentCover}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      const updated = [...similarMediaDetails];
-                      const existingIdx = updated.findIndex((d) => d.title.toLowerCase().trim() === titleStr.toLowerCase().trim());
-                      if (existingIdx >= 0) {
-                        updated[existingIdx] = { ...updated[existingIdx], customCover: val };
-                      } else {
-                        updated.push({ title: titleStr, customCover: val });
-                      }
-                      onChangeSimilarMediaDetails(updated);
-                    }}
-                    className="flex-1 bg-slate-900 border border-slate-800 rounded px-2 py-1 text-[11px] font-mono text-slate-200 placeholder-slate-600 focus:outline-none focus:border-cyan-500"
-                  />
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-});
-
-// 12. External Links Section
-const ExternalLinksSection = React.memo<{
-  links: MediaLink[];
-  onAddLink: () => void;
-  onUpdateLink: (id: string, field: 'label' | 'url', val: string) => void;
-  onRemoveLink: (id: string) => void;
-}>(({ links, onAddLink, onUpdateLink, onRemoveLink }) => {
-  return (
-    <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-3">
-      <div className="flex items-center justify-between mb-1">
-        <label className="text-xs font-mono font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1">
-          <LinkIcon size={12} /> External Links
-        </label>
-        <button
-          type="button"
-          onClick={onAddLink}
-          className="text-xs font-mono text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
-        >
-          <Plus size={12} /> Add Link
-        </button>
-      </div>
-
-      <div className="space-y-2">
-        {links.map((link) => (
-          <div key={link.id} className="flex items-center gap-2">
-            <input
-              type="text"
-              placeholder="Label (Steam, IMDb...)"
-              value={link.label}
-              onChange={(e) => onUpdateLink(link.id, 'label', e.target.value)}
-              className="w-28 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100 focus:outline-none focus:border-amber-500 font-mono"
-            />
-            <input
-              type="text"
-              placeholder="URL (https://...)"
-              value={link.url}
-              onChange={(e) => onUpdateLink(link.id, 'url', e.target.value)}
-              className="flex-1 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100 focus:outline-none focus:border-amber-500 font-mono"
-            />
-            <button
-              type="button"
-              onClick={() => onRemoveLink(link.id)}
-              className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer"
-            >
-              <Trash2 size={14} />
-            </button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-});
-
-// 13. Modal Footer Action Bar
-const ModalActionBar = React.memo<{
-  isEditing: boolean;
-  onClose: () => void;
-}>(({ isEditing, onClose }) => {
-  return (
-    <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
-      <button
-        type="button"
-        onClick={onClose}
-        className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-xs transition cursor-pointer"
-      >
-        Cancel
-      </button>
-      <button
-        type="submit"
-        className="px-6 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-mono font-bold text-xs sm:text-sm flex items-center gap-2 shadow transition cursor-pointer"
-      >
-        <Save size={16} />
-        <span>{isEditing ? 'Update Entry' : 'Save To Archive'}</span>
-      </button>
-    </div>
-  );
-});
-
-/* =========================================================================
-   MAIN ADMIN MEDIA MODAL COMPONENT (ORCHESTRATOR)
-   ========================================================================= */
-
-const AdminMediaModalComponent: React.FC<AdminMediaModalProps> = ({
-  isOpen,
-  itemToEdit,
-  allItems = [],
-  onClose,
-  onSave,
-  existingPhilosophicalTags,
-  existingStyleTags
-}) => {
-  if (!isOpen) return null;
-
-  // Form State
-  const [cover, setCover] = useState('');
-  const [title, setTitle] = useState('');
-  const [mainCreator, setMainCreator] = useState('');
-  const [mainCreatorCategory, setMainCreatorCategory] = useState<CreatorCategory>('Game Designer');
-  const [mainCreatorWiki, setMainCreatorWiki] = useState('');
-  const [mainCreatorPhoto, setMainCreatorPhoto] = useState('');
-  const [creatorNation, setCreatorNation] = useState('');
-  const [bandMembers, setBandMembers] = useState<BandMember[]>([]);
-  
-  const [otherCreatorsStr, setOtherCreatorsStr] = useState('');
-  const [mediaFormat, setMediaFormat] = useState<MediaFormat>('Video Game');
-  const [releaseDate, setReleaseDate] = useState('');
-  const [countryOfOrigin, setCountryOfOrigin] = useState('');
-  const [originalLanguage, setOriginalLanguage] = useState('');
-  const [genresStr, setGenresStr] = useState('');
-  const [philosophicalTags, setPhilosophicalTags] = useState<string[]>([]);
-  const [genreStyleTags, setGenreStyleTags] = useState<string[]>([]);
-  const [summaryPlot, setSummaryPlot] = useState('');
-  const [pros, setPros] = useState<string[]>(['']);
-  const [cons, setCons] = useState<string[]>(['']);
-  const [hornetScore, setHornetScore] = useState<number>(9);
-  const [hornetVerdict, setHornetVerdict] = useState('');
-  
-  // Relations: Similar Media & Medium Influences
-  const [similarMediaStr, setSimilarMediaStr] = useState('');
-  const [similarMediaDetails, setSimilarMediaDetails] = useState<MediaRelationEntry[]>([]);
-  const [mediumInfluencesStr, setMediumInfluencesStr] = useState('');
-  const [mediumInfluencesDetails, setMediumInfluencesDetails] = useState<MediaRelationEntry[]>([]);
-  
-  const [consumedVersion, setConsumedVersion] = useState('');
-  const [links, setLinks] = useState<MediaLink[]>([]);
-
-  // Custom category state
-  const [isCustomCategory, setIsCustomCategory] = useState(false);
-  const [customCategoryName, setCustomCategoryName] = useState('');
-
-  // Soundtrack relationship state
-  const [isSoundtrack, setIsSoundtrack] = useState(false);
-  const [soundtrackForId, setSoundtrackForId] = useState('');
-  const [soundtrackForTitle, setSoundtrackForTitle] = useState('');
-  const [soundtrackEntries, setSoundtrackEntries] = useState<{ id?: string; title: string }[]>([]);
-
-  // Link Validation Modal State
-  const [pendingLinkMatches, setPendingLinkMatches] = useState<{
-    id: string;
-    field: 'mediumInfluences' | 'similarMedia';
-    rawTitle: string;
-    matchedType: 'product' | 'creator';
-    matchedLabel: string;
-    matchedSub: string;
-    shouldLink: boolean;
-  }[] | null>(null);
-  const [stagedSavedItem, setStagedSavedItem] = useState<MediaItem | null>(null);
-
-  // Initialize form when itemToEdit changes or modal opens
   useEffect(() => {
-    if (itemToEdit) {
-      setCover(itemToEdit.cover || '');
-      setTitle(itemToEdit.title || '');
-      setMainCreator(itemToEdit.mainCreator || '');
-      const primaryDetail = itemToEdit.creatorDetails?.[0];
-      setMainCreatorCategory(primaryDetail?.category || 'Author');
-      setMainCreatorWiki(primaryDetail?.wikiUrl || '');
-      setMainCreatorPhoto(primaryDetail?.photoUrl || '');
-      setCreatorNation(primaryDetail?.nation || '');
-      setBandMembers(primaryDetail?.bandMembers || []);
+    setMembers(initialBandMembers);
+  }, [initialBandMembers]);
 
-      const { canonicalFormat, isCustom: detectedCustom } = normalizeMediaFormat(itemToEdit.customCategoryName || itemToEdit.mediaFormat);
-      const isCustom = Boolean(itemToEdit.isCustomCategory && detectedCustom);
-      setIsCustomCategory(isCustom);
-      setCustomCategoryName(itemToEdit.customCategoryName || (isCustom ? itemToEdit.mediaFormat : ''));
-
-      setOtherCreatorsStr(itemToEdit.otherCreators?.join(', ') || '');
-      setMediaFormat(isCustom ? 'Custom Category' : canonicalFormat);
-      setReleaseDate(itemToEdit.releaseDate || '');
-      setCountryOfOrigin(itemToEdit.countryOfOrigin || '');
-      setOriginalLanguage(itemToEdit.originalLanguage || '');
-      setGenresStr(itemToEdit.genres?.join(', ') || '');
-      setPhilosophicalTags(itemToEdit.philosophicalTags || []);
-      setGenreStyleTags((itemToEdit.genreStyleTags || []).map((t) => t.toLowerCase()));
-      setSummaryPlot(itemToEdit.summaryPlot || '');
-      setPros(itemToEdit.pros && itemToEdit.pros.length > 0 ? itemToEdit.pros : ['']);
-      setCons(itemToEdit.cons && itemToEdit.cons.length > 0 ? itemToEdit.cons : ['']);
-      setHornetScore(itemToEdit.hornetScore ?? 9);
-      setHornetVerdict(itemToEdit.hornetVerdict || '');
-
-      // Parse Similar Media
-      if (itemToEdit.similarMedia) {
-        const rawTitles: string[] = [];
-        const details: MediaRelationEntry[] = [];
-        itemToEdit.similarMedia.forEach((sm) => {
-          if (typeof sm === 'string') {
-            rawTitles.push(sm);
-          } else {
-            rawTitles.push(sm.title);
-            details.push(sm);
-          }
-        });
-        setSimilarMediaStr(rawTitles.join(', '));
-        setSimilarMediaDetails(details);
-      } else {
-        setSimilarMediaStr('');
-        setSimilarMediaDetails([]);
-      }
-
-      // Parse Medium Influences
-      if (itemToEdit.mediumInfluences) {
-        const rawTitles: string[] = [];
-        const details: MediaRelationEntry[] = [];
-        itemToEdit.mediumInfluences.forEach((mi) => {
-          if (typeof mi === 'string') {
-            rawTitles.push(mi);
-          } else {
-            rawTitles.push(mi.title);
-            details.push(mi);
-          }
-        });
-        setMediumInfluencesStr(rawTitles.join(', '));
-        setMediumInfluencesDetails(details);
-      } else {
-        setMediumInfluencesStr('');
-        setMediumInfluencesDetails([]);
-      }
-
-      setConsumedVersion(itemToEdit.consumedVersion || '');
-      setLinks(itemToEdit.links || []);
-      setIsSoundtrack(Boolean(itemToEdit.isSoundtrack || itemToEdit.soundtrackForId || itemToEdit.soundtrackForTitle));
-      setSoundtrackForId(itemToEdit.soundtrackForId || '');
-      setSoundtrackForTitle(itemToEdit.soundtrackForTitle || '');
-
-      let existingSoundtracks: { id?: string; title: string }[] = [];
-      if (itemToEdit.soundtracks && itemToEdit.soundtracks.length > 0) {
-        existingSoundtracks = itemToEdit.soundtracks.map((s) => ({ ...s }));
-      } else if (itemToEdit.soundtrackId || itemToEdit.soundtrackTitle) {
-        existingSoundtracks = [{ id: itemToEdit.soundtrackId, title: itemToEdit.soundtrackTitle || '' }];
-      }
-      setSoundtrackEntries(existingSoundtracks);
-    } else {
-      // Reset empty form
-      setCover('');
-      setTitle('');
-      setMainCreator('');
-      setMainCreatorCategory('Author');
-      setMainCreatorWiki('');
-      setMainCreatorPhoto('');
-      setCreatorNation('');
-      setBandMembers([]);
-      setOtherCreatorsStr('');
-      setMediaFormat('Video Game');
-      setReleaseDate(new Date().toISOString().substring(0, 10));
-      setCountryOfOrigin('');
-      setOriginalLanguage('');
-      setGenresStr('');
-      setPhilosophicalTags([]);
-      setGenreStyleTags([]);
-      setSummaryPlot('');
-      setPros(['']);
-      setCons(['']);
-      setHornetScore(9);
-      setHornetVerdict('');
-      setSimilarMediaStr('');
-      setSimilarMediaDetails([]);
-      setMediumInfluencesStr('');
-      setMediumInfluencesDetails([]);
-      setConsumedVersion('');
-      setIsCustomCategory(false);
-      setCustomCategoryName('');
-      setIsSoundtrack(false);
-      setSoundtrackForId('');
-      setSoundtrackForTitle('');
-      setSoundtrackEntries([]);
-      setLinks([
-        { id: 'l1', label: 'Product Wikipedia / Store Page', url: '' }
-      ]);
-    }
-  }, [itemToEdit, isOpen]);
-
-  // Collect all known genre tags across items for auto-correction
-  const existingGenresPool = useMemo(() => {
-    const set = new Set<string>();
-    allItems.forEach((i) => i.genres?.forEach((g) => set.add(g.trim())));
-    return Array.from(set);
-  }, [allItems]);
-
-  // Pre-memoize select options so hundreds of DOM elements are not recreated on every keystroke
-  const targetMediaOptions = useMemo(() => {
-    return allItems
-      .filter((i) => i.mediaFormat !== 'Music Album' && i.id !== itemToEdit?.id)
-      .map((item) => (
-        <option key={item.id} value={item.id}>
-          {item.title} ({item.mediaFormat} - {item.mainCreator})
-        </option>
-      ));
-  }, [allItems, itemToEdit?.id]);
-
-  const soundtrackAlbumOptions = useMemo(() => {
-    return allItems
-      .filter((i) => i.mediaFormat === 'Music Album')
-      .map((album) => (
-        <option key={album.id} value={album.id}>
-          {album.title} (by {album.mainCreator})
-        </option>
-      ));
-  }, [allItems]);
-
-  // Compute known band members across the entire database for the current mainCreator
   const knownBandMembers = useMemo<BandMember[]>(() => {
     if (!mainCreator || !allItems) return [];
     const bandNameLower = mainCreator.toLowerCase().trim();
@@ -1916,264 +834,1125 @@ const AdminMediaModalComponent: React.FC<AdminMediaModalProps> = ({
     return Array.from(map.values());
   }, [mainCreator, allItems]);
 
-  /* =========================================================================
-     MEMOIZED STABLE CALLBACKS
-     ========================================================================= */
+  const updateList = (newList: BandMember[]) => {
+    setMembers(newList);
+    onUpdateMembers(newList);
+  };
 
-  const handleAddBandMember = useCallback(() => {
-    setBandMembers((prev) => [
-      ...prev,
-      { name: '', bandRole: 'Musician', participatedInProduct: true, productRole: '' }
-    ]);
-  }, []);
-
-  const handleAddPresetMember = useCallback((defaultRole: string) => {
-    setBandMembers((prev) => [
-      ...prev,
+  const handleAddMember = (defaultRole = 'Musician') => {
+    updateList([
+      ...members,
       { name: '', bandRole: defaultRole, participatedInProduct: true, productRole: defaultRole }
     ]);
-  }, []);
+  };
 
-  const handleUpdateBandMember = useCallback((index: number, field: keyof BandMember, value: any) => {
-    setBandMembers((prev) => {
-      const updated = [...prev];
-      updated[index] = { ...updated[index], [field]: value };
-      return updated;
-    });
-  }, []);
+  const handleUpdateRow = (idx: number, field: keyof BandMember, val: any) => {
+    const next = [...members];
+    next[idx] = { ...next[idx], [field]: val };
+    updateList(next);
+  };
 
-  const handleRemoveBandMember = useCallback((index: number) => {
-    setBandMembers((prev) => prev.filter((_, i) => i !== index));
-  }, []);
+  const handleRemoveRow = (idx: number) => {
+    updateList(members.filter((_, i) => i !== idx));
+  };
 
-  const handleImportBulkText = useCallback((text: string) => {
-    const tokens: string[] = [];
-    let current = '';
-    let parenDepth = 0;
-
-    for (let i = 0; i < text.length; i++) {
-      const char = text[i];
-      if (char === '(') parenDepth++;
-      else if (char === ')') parenDepth--;
-
-      if ((char === ',' || char === '\n' || char === ';') && parenDepth === 0) {
-        if (current.trim()) tokens.push(current.trim());
-        current = '';
-      } else {
-        current += char;
-      }
-    }
-    if (current.trim()) tokens.push(current.trim());
-
-    const newParsedMembers: BandMember[] = tokens
-      .map((token) => {
-        const parenMatch = token.match(/^([^(]+)\(([^)]+)\)$/);
-        if (parenMatch) {
-          return {
-            name: parenMatch[1].trim(),
-            bandRole: parenMatch[2].trim(),
-            participatedInProduct: true,
-            productRole: parenMatch[2].trim()
-          };
-        }
-
-        const dashMatch = token.match(/^([^-]+)-(.+)$/);
-        if (dashMatch) {
-          return {
-            name: dashMatch[1].trim(),
-            bandRole: dashMatch[2].trim(),
-            participatedInProduct: true,
-            productRole: dashMatch[2].trim()
-          };
-        }
-
-        return {
-          name: token.trim(),
-          bandRole: 'Musician',
+  const handleBulkImport = () => {
+    if (!bulkText.trim()) return;
+    const tokens = bulkText.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean);
+    const added: BandMember[] = [];
+    tokens.forEach((token) => {
+      const parts = token.split(/[-–—/:]+/);
+      const name = parts[0].trim();
+      const role = parts[1]?.trim() || 'Musician';
+      if (name && !members.some((m) => m.name.toLowerCase() === name.toLowerCase())) {
+        added.push({
+          name,
+          bandRole: role,
           participatedInProduct: true,
-          productRole: ''
-        };
-      })
-      .filter((m) => m.name.length > 0);
-
-    setBandMembers((prev) => {
-      const existingNames = new Set(prev.map((m) => m.name.toLowerCase().trim()));
-      const filteredNew = newParsedMembers.filter((m) => !existingNames.has(m.name.toLowerCase().trim()));
-      return [...prev, ...filteredNew];
-    });
-  }, []);
-
-  const handleImportKnownMember = useCallback((m: BandMember, participated: boolean = true) => {
-    setBandMembers((prev) => {
-      const existingIndex = prev.findIndex((bm) => bm.name.toLowerCase().trim() === m.name.toLowerCase().trim());
-      if (existingIndex >= 0) {
-        const updated = [...prev];
-        updated[existingIndex] = { ...updated[existingIndex], participatedInProduct: participated };
-        return updated;
+          productRole: role
+        });
       }
-      return [
-        ...prev,
-        {
-          name: m.name,
-          bandRole: m.bandRole || 'Musician',
-          participatedInProduct: participated,
-          productRole: m.productRole || m.bandRole || '',
-          photoUrl: m.photoUrl,
-          wikiUrl: m.wikiUrl
-        }
-      ];
     });
+    if (added.length > 0) {
+      updateList([...members, ...added]);
+      setBulkText('');
+    }
+  };
+
+  return (
+    <div className="p-4 rounded-xl bg-purple-950/20 border border-purple-800/40 space-y-4 font-mono animate-fade-in">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-purple-900/60 pb-2">
+        <div>
+          <h4 className="text-xs font-bold uppercase tracking-wider text-purple-300">
+            Band Lineup & Musician Credits: {mainCreator || 'This Band'}
+          </h4>
+          <p className="text-[11px] text-slate-400 font-sans mt-0.5">
+            Maintain band personnel, instruments, and album performance credits.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => handleAddMember('Musician')}
+          className="text-xs font-mono text-purple-400 hover:text-purple-300 flex items-center gap-1 cursor-pointer self-start sm:self-auto"
+        >
+          <Plus size={13} /> Add Musician
+        </button>
+      </div>
+
+      {/* Preset Quick-Add Roles */}
+      <div className="space-y-1">
+        <span className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">
+          Quick Preset Roles:
+        </span>
+        <div className="flex flex-wrap gap-1.5">
+          {['Lead Vocals', 'Lead Guitar', 'Rhythm Guitar', 'Bass Guitar', 'Drums & Percussion', 'Keyboards & Synths', 'Composer', 'Producer'].map((role) => (
+            <button
+              key={role}
+              type="button"
+              onClick={() => handleAddMember(role)}
+              className="px-2 py-0.5 rounded text-[10px] bg-slate-900 hover:bg-slate-800 text-purple-300 border border-purple-800/60 transition cursor-pointer"
+            >
+              + {role}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Bulk Paste */}
+      <div className="p-2.5 rounded-lg bg-slate-950/60 border border-purple-900/40 space-y-2">
+        <label className="text-[11px] font-bold text-slate-300 block">
+          Bulk Paste Band Members (one per line, e.g. "Mikael Åkerfeldt - Lead Vocals"):
+        </label>
+        <div className="flex gap-2">
+          <textarea
+            rows={2}
+            placeholder="Fredrik Åkesson - Guitar&#10;Martín Méndez - Bass"
+            value={bulkText}
+            onChange={(e) => setBulkText(e.target.value)}
+            className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-purple-400 font-mono"
+          />
+          <button
+            type="button"
+            onClick={handleBulkImport}
+            className="px-3 py-1 bg-purple-700 hover:bg-purple-600 text-white rounded text-xs font-bold transition cursor-pointer self-end shrink-0"
+          >
+            Import
+          </button>
+        </div>
+      </div>
+
+      {/* Known Members */}
+      {knownBandMembers.length > 0 && (
+        <div className="space-y-1 pt-1">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-slate-400 font-bold uppercase">
+              Known Band Personnel from Other Archive Entries:
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                const missing = knownBandMembers.filter(
+                  (km) => !members.some((m) => m.name.toLowerCase() === km.name.toLowerCase())
+                );
+                if (missing.length > 0) {
+                  updateList([
+                    ...members,
+                    ...missing.map((km) => ({ ...km, participatedInProduct: true, productRole: km.bandRole }))
+                  ]);
+                }
+              }}
+              className="text-[10px] text-amber-400 hover:underline cursor-pointer"
+            >
+              + Import All Known Members
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {knownBandMembers.map((km, idx) => {
+              const isAdded = members.some((m) => m.name.toLowerCase() === km.name.toLowerCase());
+              return (
+                <button
+                  key={`known-${km.name}-${idx}`}
+                  type="button"
+                  disabled={isAdded}
+                  onClick={() => {
+                    if (!isAdded) {
+                      updateList([
+                        ...members,
+                        { ...km, participatedInProduct: true, productRole: km.bandRole }
+                      ]);
+                    }
+                  }}
+                  className={`px-2 py-0.5 rounded text-[10px] border transition cursor-pointer ${
+                    isAdded
+                      ? 'bg-slate-950 text-slate-600 border-slate-800 cursor-default'
+                      : 'bg-slate-900 hover:bg-slate-800 text-cyan-300 border-cyan-800/60'
+                  }`}
+                >
+                  {isAdded ? '✓' : '+'} {km.name} ({km.bandRole})
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Members Table */}
+      <div className="space-y-2 pt-2 border-t border-purple-900/40">
+        {members.map((m, idx) => (
+          <div key={`bm-${idx}`} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 p-2 rounded-lg bg-slate-950/70 border border-slate-800">
+            <input
+              type="text"
+              placeholder="Musician Name (e.g. John Petrucci)..."
+              value={m.name}
+              onChange={(e) => handleUpdateRow(idx, 'name', e.target.value)}
+              className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100 focus:outline-none focus:border-purple-400 font-mono"
+            />
+            <input
+              type="text"
+              placeholder="Primary Role (e.g. Lead Guitar)..."
+              value={m.bandRole}
+              onChange={(e) => handleUpdateRow(idx, 'bandRole', e.target.value)}
+              className="w-36 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100 focus:outline-none focus:border-purple-400 font-mono"
+            />
+            <label className="flex items-center gap-1.5 px-2 py-1 bg-slate-900/80 rounded border border-slate-800 text-[11px] text-slate-300 cursor-pointer shrink-0">
+              <input
+                type="checkbox"
+                checked={m.participatedInProduct ?? true}
+                onChange={(e) => handleUpdateRow(idx, 'participatedInProduct', e.target.checked)}
+                className="rounded bg-slate-950 border-slate-700 text-purple-500"
+              />
+              <span>Credited on this Release</span>
+            </label>
+            <button
+              type="button"
+              onClick={() => handleRemoveRow(idx)}
+              className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer self-end sm:self-auto"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+});
+
+// 6. Release & Other Creators Section
+const ReleaseAndOtherCreatorsSection = React.memo<{
+  initialOtherCreators: string;
+  initialReleaseDate: string;
+  initialConsumedVersion: string;
+  onUpdateField: (field: string, val: any) => void;
+}>(({
+  initialOtherCreators,
+  initialReleaseDate,
+  initialConsumedVersion,
+  onUpdateField
+}) => {
+  const [otherCreators, setOtherCreators] = useState(initialOtherCreators);
+  const [date, setDate] = useState(initialReleaseDate);
+  const [version, setVersion] = useState(initialConsumedVersion);
+
+  useEffect(() => {
+    setOtherCreators(initialOtherCreators);
+    setDate(initialReleaseDate);
+    setVersion(initialConsumedVersion);
+  }, [initialOtherCreators, initialReleaseDate, initialConsumedVersion]);
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div>
+        <label className="block text-xs font-mono font-bold uppercase tracking-wider text-slate-300 mb-1">
+          Other Creators & Collaborators
+        </label>
+        <input
+          type="text"
+          placeholder="e.g. Keiichi Okabe/Music Artist, Greg Kasavin/Writer..."
+          value={otherCreators}
+          onChange={(e) => {
+            setOtherCreators(e.target.value);
+            onUpdateField('otherCreatorsStr', e.target.value);
+          }}
+          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
+        />
+      </div>
+
+      <div>
+        <label className="block text-xs font-mono font-bold uppercase tracking-wider text-slate-300 mb-1">
+          Release Date / Year *
+        </label>
+        <input
+          type="text"
+          required
+          placeholder="YYYY-MM-DD or YYYY"
+          value={date}
+          onChange={(e) => {
+            setDate(e.target.value);
+            onUpdateField('releaseDate', e.target.value);
+          }}
+          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
+        />
+      </div>
+
+      <div>
+        <label className="block text-xs font-mono font-bold uppercase tracking-wider text-slate-300 mb-1">
+          Consumed / Reviewed Version
+        </label>
+        <input
+          type="text"
+          placeholder="e.g. PS5 Remastered (2024), 1st Edition Hardcover..."
+          value={version}
+          onChange={(e) => {
+            setVersion(e.target.value);
+            onUpdateField('consumedVersion', e.target.value);
+          }}
+          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
+        />
+      </div>
+    </div>
+  );
+});
+
+// 7. Genres & Tags Section
+const GenresAndTagsSection = React.memo<{
+  initialGenresStr: string;
+  initialPhilosophicalTags: string[];
+  initialGenreStyleTags: string[];
+  existingPhilosophicalTags: string[];
+  existingStyleTags: string[];
+  onUpdateField: (field: string, val: any) => void;
+}>(({
+  initialGenresStr,
+  initialPhilosophicalTags,
+  initialGenreStyleTags,
+  existingPhilosophicalTags,
+  existingStyleTags,
+  onUpdateField
+}) => {
+  const [genres, setGenres] = useState(initialGenresStr);
+  const [philoTags, setPhiloTags] = useState(initialPhilosophicalTags);
+  const [styleTags, setStyleTags] = useState(initialGenreStyleTags);
+  const [customPhilo, setCustomPhilo] = useState('');
+  const [customStyle, setCustomStyle] = useState('');
+
+  useEffect(() => {
+    setGenres(initialGenresStr);
+    setPhiloTags(initialPhilosophicalTags);
+    setStyleTags(initialGenreStyleTags);
+  }, [initialGenresStr, initialPhilosophicalTags, initialGenreStyleTags]);
+
+  const handleAddPhilo = (tag: string) => {
+    const t = tag.trim();
+    if (t && !philoTags.some((pt) => pt.toLowerCase() === t.toLowerCase())) {
+      const next = [...philoTags, t];
+      setPhiloTags(next);
+      onUpdateField('philosophicalTags', next);
+    }
+    setCustomPhilo('');
+  };
+
+  const handleRemovePhilo = (tag: string) => {
+    const next = philoTags.filter((t) => t.toLowerCase() !== tag.toLowerCase());
+    setPhiloTags(next);
+    onUpdateField('philosophicalTags', next);
+  };
+
+  const handleAddStyle = (tag: string) => {
+    const t = tag.trim().toLowerCase();
+    if (t && !styleTags.includes(t)) {
+      const next = [...styleTags, t];
+      setStyleTags(next);
+      onUpdateField('genreStyleTags', next);
+    }
+    setCustomStyle('');
+  };
+
+  const handleRemoveStyle = (tag: string) => {
+    const next = styleTags.filter((t) => t.toLowerCase() !== tag.toLowerCase());
+    setStyleTags(next);
+    onUpdateField('genreStyleTags', next);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="block text-xs font-mono font-bold uppercase tracking-wider text-slate-300 mb-1">
+          Genres (Comma separated)
+        </label>
+        <input
+          type="text"
+          placeholder="e.g. Action RPG, Sci-Fi, Psychological Drama, Post-Apocalyptic..."
+          value={genres}
+          onChange={(e) => {
+            setGenres(e.target.value);
+            onUpdateField('genresStr', e.target.value);
+          }}
+          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs sm:text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Philosophical Themes */}
+        <div className="p-4 rounded-xl bg-purple-950/20 border border-purple-500/30 space-y-3">
+          <label className="text-xs font-mono font-bold uppercase tracking-wider text-purple-400 flex items-center gap-1.5">
+            <Tag size={13} /> Philosophical Themes & Motifs
+          </label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="e.g. Nihilism, Free Will..."
+              value={customPhilo}
+              onChange={(e) => setCustomPhilo(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleAddPhilo(customPhilo);
+                }
+              }}
+              className="flex-1 bg-slate-950 border border-purple-500/40 rounded px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-purple-400 font-mono"
+            />
+            <button
+              type="button"
+              onClick={() => handleAddPhilo(customPhilo)}
+              className="px-3 py-1 bg-purple-700 hover:bg-purple-600 text-white rounded text-xs font-mono font-bold transition cursor-pointer"
+            >
+              Add
+            </button>
+          </div>
+
+          {/* Existing tags quick picker */}
+          {existingPhilosophicalTags.length > 0 && (
+            <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto pt-1">
+              {existingPhilosophicalTags.slice(0, 15).map((t, idx) => (
+                <button
+                  key={`p-${t}-${idx}`}
+                  type="button"
+                  onClick={() => handleAddPhilo(t)}
+                  className="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-900 hover:bg-slate-800 text-purple-300 border border-purple-900/60 transition cursor-pointer"
+                >
+                  + {t}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Selected tags */}
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {philoTags.map((tag, idx) => (
+              <span
+                key={`sel-p-${tag}-${idx}`}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-purple-700 text-white text-xs font-sans font-medium"
+              >
+                <span>{tag}</span>
+                <button
+                  type="button"
+                  onClick={() => handleRemovePhilo(tag)}
+                  className="hover:text-rose-300 cursor-pointer"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Style & Aesthetic Tags */}
+        <div className="p-4 rounded-xl bg-emerald-950/20 border border-emerald-500/30 space-y-3">
+          <label className="text-xs font-mono font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+            <Tag size={13} /> Genre & Aesthetic Style Tags
+          </label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="e.g. atmospheric, melancholic, brutalist..."
+              value={customStyle}
+              onChange={(e) => setCustomStyle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleAddStyle(customStyle);
+                }
+              }}
+              className="flex-1 bg-slate-950 border border-emerald-500/40 rounded px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-400 font-mono"
+            />
+            <button
+              type="button"
+              onClick={() => handleAddStyle(customStyle)}
+              className="px-3 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-xs font-mono font-bold transition cursor-pointer"
+            >
+              Add
+            </button>
+          </div>
+
+          {/* Existing style tags quick picker */}
+          {existingStyleTags.length > 0 && (
+            <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto pt-1">
+              {existingStyleTags.slice(0, 15).map((t, idx) => (
+                <button
+                  key={`s-${t}-${idx}`}
+                  type="button"
+                  onClick={() => handleAddStyle(t)}
+                  className="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-900 hover:bg-slate-800 text-emerald-300 border border-emerald-900/60 transition cursor-pointer"
+                >
+                  + {t}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Selected tags */}
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {styleTags.map((tag, idx) => (
+              <span
+                key={`sel-s-${tag}-${idx}`}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-700 text-white text-xs font-sans font-medium"
+              >
+                <span>{tag}</span>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveStyle(tag)}
+                  className="hover:text-rose-300 cursor-pointer"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+// 8. Review & Scoring Section (Summary Plot, Score Slider, Verdict)
+const ReviewAndScoringSection = React.memo<{
+  initialPlot: string;
+  initialScore: number;
+  initialVerdict: string;
+  onUpdateField: (field: string, val: any) => void;
+}>(({ initialPlot, initialScore, initialVerdict, onUpdateField }) => {
+  const [plot, setPlot] = useState(initialPlot);
+  const [score, setScore] = useState(initialScore);
+  const [verdict, setVerdict] = useState(initialVerdict);
+
+  useEffect(() => {
+    setPlot(initialPlot);
+    setScore(initialScore);
+    setVerdict(initialVerdict);
+  }, [initialPlot, initialScore, initialVerdict]);
+
+  const levelInfo = useMemo(() => getScoreLevelInfo(score), [score]);
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <label className="block text-xs font-mono font-bold uppercase tracking-wider text-slate-300 mb-1">
+          Summary Plot & Premise
+        </label>
+        <textarea
+          rows={3}
+          placeholder="Enter a brief summary plot, central narrative premise, or thematic overview..."
+          value={plot}
+          onChange={(e) => {
+            setPlot(e.target.value);
+            onUpdateField('summaryPlot', e.target.value);
+          }}
+          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs sm:text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-sans"
+        />
+      </div>
+
+      <div className="p-4 rounded-xl bg-amber-950/20 border border-amber-500/30 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="space-y-1">
+            <label className="text-xs font-mono font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+              <Award size={15} /> Hornet's Score (1 to 10 Scale)
+            </label>
+            <div className="flex items-center gap-2">
+              <span className={`text-sm font-bold font-mono ${levelInfo.color}`}>
+                {score}/10 — {levelInfo.label}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <input
+              type="range"
+              min="1"
+              max="10"
+              step="1"
+              value={score}
+              onChange={(e) => {
+                const next = Number(e.target.value);
+                setScore(next);
+                onUpdateField('hornetScore', next);
+              }}
+              className="w-40 accent-amber-500 bg-slate-800 cursor-pointer"
+            />
+            <input
+              type="number"
+              min="1"
+              max="10"
+              step="1"
+              value={score}
+              onChange={(e) => {
+                const next = Math.max(1, Math.min(10, Number(e.target.value) || 1));
+                setScore(next);
+                onUpdateField('hornetScore', next);
+              }}
+              className="w-16 bg-slate-950 border border-amber-500/50 rounded px-2 py-1 text-center font-mono font-bold text-amber-300 text-sm"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-mono font-bold uppercase tracking-wider text-slate-300 mb-1">
+            Hornet's Verdict / Quick Commentary
+          </label>
+          <textarea
+            rows={2}
+            placeholder="A brief 1-2 sentence core evaluation..."
+            value={verdict}
+            onChange={(e) => {
+              setVerdict(e.target.value);
+              onUpdateField('hornetVerdict', e.target.value);
+            }}
+            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs sm:text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-sans"
+          />
+        </div>
+      </div>
+    </div>
+  );
+});
+
+// 9. Pros & Cons Section (Hyperfast dynamic rows)
+const ProsAndConsSection = React.memo<{
+  initialPros: string[];
+  initialCons: string[];
+  onUpdateField: (field: string, val: any) => void;
+}>(({ initialPros, initialCons, onUpdateField }) => {
+  const [pros, setPros] = useState(initialPros);
+  const [cons, setCons] = useState(initialCons);
+
+  useEffect(() => {
+    setPros(initialPros);
+    setCons(initialCons);
+  }, [initialPros, initialCons]);
+
+  const updatePros = (next: string[]) => {
+    setPros(next);
+    onUpdateField('pros', next);
+  };
+
+  const updateCons = (next: string[]) => {
+    setCons(next);
+    onUpdateField('cons', next);
+  };
+
+  const handleAddPro = () => {
+    updatePros([...pros, '']);
+  };
+
+  const handleAddCon = () => {
+    updateCons([...cons, '']);
+  };
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* Pros */}
+      <div className="p-4 rounded-xl bg-emerald-950/20 border border-emerald-500/30 space-y-3">
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-mono font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1">
+            <CheckCircle2 size={14} /> Pros (Strengths)
+          </label>
+          <button
+            type="button"
+            onClick={handleAddPro}
+            className="text-xs font-mono text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
+          >
+            <Plus size={12} /> Add Pro
+          </button>
+        </div>
+
+        <div className="space-y-2">
+          {pros.map((pro, idx) => (
+            <div key={`pro-${idx}`} className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder={`Strength #${idx + 1} (Press Enter to add next)...`}
+                value={pro}
+                onChange={(e) => {
+                  const next = [...pros];
+                  next[idx] = e.target.value;
+                  updatePros(next);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddPro();
+                    setTimeout(() => {
+                      const inputs = document.querySelectorAll<HTMLInputElement>('.pro-input-field');
+                      if (inputs && inputs[idx + 1]) {
+                        inputs[idx + 1].focus();
+                      }
+                    }, 50);
+                  }
+                }}
+                className="pro-input-field flex-1 bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const next = pros.filter((_, i) => i !== idx);
+                  updatePros(next.length > 0 ? next : ['']);
+                }}
+                className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Cons */}
+      <div className="p-4 rounded-xl bg-rose-950/20 border border-rose-500/30 space-y-3">
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-mono font-bold uppercase tracking-wider text-rose-400 flex items-center gap-1">
+            <XCircle size={14} /> Cons (Flaws)
+          </label>
+          <button
+            type="button"
+            onClick={handleAddCon}
+            className="text-xs font-mono text-rose-400 hover:underline flex items-center gap-1 cursor-pointer"
+          >
+            <Plus size={12} /> Add Con
+          </button>
+        </div>
+
+        <div className="space-y-2">
+          {cons.map((con, idx) => (
+            <div key={`con-${idx}`} className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder={`Critique #${idx + 1} (Press Enter to add next)...`}
+                value={con}
+                onChange={(e) => {
+                  const next = [...cons];
+                  next[idx] = e.target.value;
+                  updateCons(next);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddCon();
+                    setTimeout(() => {
+                      const inputs = document.querySelectorAll<HTMLInputElement>('.con-input-field');
+                      if (inputs && inputs[idx + 1]) {
+                        inputs[idx + 1].focus();
+                      }
+                    }, 50);
+                  }
+                }}
+                className="con-input-field flex-1 bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-rose-500"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const next = cons.filter((_, i) => i !== idx);
+                  updateCons(next.length > 0 ? next : ['']);
+                }}
+                className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+// 10. Relations Section (Medium Influences & Similar Media)
+const RelationsSection = React.memo<{
+  initialInfluencesStr: string;
+  initialInfluencesDetails: MediaRelationEntry[];
+  initialSimilarStr: string;
+  initialSimilarDetails: MediaRelationEntry[];
+  onUpdateField: (field: string, val: any) => void;
+}>(({
+  initialInfluencesStr,
+  initialInfluencesDetails,
+  initialSimilarStr,
+  initialSimilarDetails,
+  onUpdateField
+}) => {
+  const [infStr, setInfStr] = useState(initialInfluencesStr);
+  const [infDetails, setInfDetails] = useState(initialInfluencesDetails);
+  const [simStr, setSimStr] = useState(initialSimilarStr);
+  const [simDetails, setSimDetails] = useState(initialSimilarDetails);
+
+  useEffect(() => {
+    setInfStr(initialInfluencesStr);
+    setInfDetails(initialInfluencesDetails);
+    setSimStr(initialSimilarStr);
+    setSimDetails(initialSimilarDetails);
+  }, [initialInfluencesStr, initialInfluencesDetails, initialSimilarStr, initialSimilarDetails]);
+
+  const parsedInfList = useMemo(() => {
+    return infStr.split(',').map((s) => s.trim()).filter(Boolean);
+  }, [infStr]);
+
+  const parsedSimList = useMemo(() => {
+    return simStr.split(',').map((s) => s.trim()).filter(Boolean);
+  }, [simStr]);
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* Medium Influences */}
+      <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3">
+        <div>
+          <label className="block text-xs font-mono font-bold uppercase tracking-wider text-amber-400 mb-1">
+            Medium Influences & Inspirations (Comma separated)
+          </label>
+          <p className="text-[11px] font-mono text-slate-400 mb-2">
+            Enter name-drops or media that directly influenced this work.
+          </p>
+          <input
+            type="text"
+            placeholder="e.g. Crime and Punishment, Solaris, Akira, Neuromancer..."
+            value={infStr}
+            onChange={(e) => {
+              setInfStr(e.target.value);
+              onUpdateField('mediumInfluencesStr', e.target.value);
+            }}
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
+          />
+        </div>
+
+        {parsedInfList.length > 0 && (
+          <div className="space-y-2 pt-1 border-t border-slate-800">
+            <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider font-bold">
+              Custom Covers for Uncataloged Influences (Optional)
+            </span>
+            {parsedInfList.map((titleStr, idx) => {
+              const match = infDetails.find((d) => d.title.toLowerCase().trim() === titleStr.toLowerCase().trim());
+              const currentCover = match?.customCover || '';
+              return (
+                <div key={`inf-cov-${idx}`} className="flex items-center gap-2">
+                  <span className="text-xs font-mono text-amber-300 w-28 truncate shrink-0" title={titleStr}>
+                    {titleStr}:
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Image URL for custom picture..."
+                    value={currentCover}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      const next = [...infDetails];
+                      const existingIdx = next.findIndex((d) => d.title.toLowerCase().trim() === titleStr.toLowerCase().trim());
+                      if (existingIdx >= 0) {
+                        next[existingIdx] = { ...next[existingIdx], customCover: val };
+                      } else {
+                        next.push({ title: titleStr, customCover: val });
+                      }
+                      setInfDetails(next);
+                      onUpdateField('mediumInfluencesDetails', next);
+                    }}
+                    className="flex-1 bg-slate-900 border border-slate-800 rounded px-2 py-1 text-[11px] font-mono text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Similar Media */}
+      <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3">
+        <div>
+          <label className="block text-xs font-mono font-bold uppercase tracking-wider text-cyan-400 mb-1">
+            Similar Media & References (Comma separated)
+          </label>
+          <p className="text-[11px] font-mono text-slate-400 mb-2">
+            Enter similar media titles. Uncataloged titles automatically link once added to archive!
+          </p>
+          <input
+            type="text"
+            placeholder="e.g. Ghost in the Shell, SOMA, Planescape..."
+            value={simStr}
+            onChange={(e) => {
+              setSimStr(e.target.value);
+              onUpdateField('similarMediaStr', e.target.value);
+            }}
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-cyan-500 font-mono"
+          />
+        </div>
+
+        {parsedSimList.length > 0 && (
+          <div className="space-y-2 pt-1 border-t border-slate-800">
+            <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider font-bold">
+              Custom Covers for Uncataloged Similar Media
+            </span>
+            {parsedSimList.map((titleStr, idx) => {
+              const match = simDetails.find((d) => d.title.toLowerCase().trim() === titleStr.toLowerCase().trim());
+              const currentCover = match?.customCover || '';
+              return (
+                <div key={`sim-cov-${idx}`} className="flex items-center gap-2">
+                  <span className="text-xs font-mono text-cyan-300 w-28 truncate shrink-0" title={titleStr}>
+                    {titleStr}:
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Image URL for custom picture..."
+                    value={currentCover}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      const next = [...simDetails];
+                      const existingIdx = next.findIndex((d) => d.title.toLowerCase().trim() === titleStr.toLowerCase().trim());
+                      if (existingIdx >= 0) {
+                        next[existingIdx] = { ...next[existingIdx], customCover: val };
+                      } else {
+                        next.push({ title: titleStr, customCover: val });
+                      }
+                      setSimDetails(next);
+                      onUpdateField('similarMediaDetails', next);
+                    }}
+                    className="flex-1 bg-slate-900 border border-slate-800 rounded px-2 py-1 text-[11px] font-mono text-slate-200 placeholder-slate-600 focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
+
+// 11. External Links Section
+const ExternalLinksSection = React.memo<{
+  initialLinks: MediaLink[];
+  onUpdateLinks: (links: MediaLink[]) => void;
+}>(({ initialLinks, onUpdateLinks }) => {
+  const [links, setLinks] = useState<MediaLink[]>(initialLinks);
+
+  useEffect(() => {
+    setLinks(initialLinks);
+  }, [initialLinks]);
+
+  const updateList = (next: MediaLink[]) => {
+    setLinks(next);
+    onUpdateLinks(next);
+  };
+
+  return (
+    <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-3">
+      <div className="flex items-center justify-between mb-1">
+        <label className="text-xs font-mono font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1">
+          <LinkIcon size={12} /> External Links
+        </label>
+        <button
+          type="button"
+          onClick={() => updateList([...links, { id: `link-${Date.now()}`, label: '', url: '' }])}
+          className="text-xs font-mono text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
+        >
+          <Plus size={12} /> Add Link
+        </button>
+      </div>
+
+      <div className="space-y-2">
+        {links.map((link, idx) => (
+          <div key={link.id || idx} className="flex items-center gap-2">
+            <input
+              type="text"
+              placeholder="Label (Steam, IMDb...)"
+              value={link.label}
+              onChange={(e) => {
+                const next = [...links];
+                next[idx] = { ...next[idx], label: e.target.value };
+                updateList(next);
+              }}
+              className="w-28 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100 focus:outline-none focus:border-amber-500 font-mono"
+            />
+            <input
+              type="text"
+              placeholder="URL (https://...)"
+              value={link.url}
+              onChange={(e) => {
+                const next = [...links];
+                next[idx] = { ...next[idx], url: e.target.value };
+                updateList(next);
+              }}
+              className="flex-1 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-100 focus:outline-none focus:border-amber-500 font-mono"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                const next = links.filter((_, i) => i !== idx);
+                updateList(next);
+              }}
+              className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+});
+
+/* =========================================================================
+   MAIN ADMIN MEDIA MODAL COMPONENT (High-Speed Form Engine)
+   ========================================================================= */
+
+const AdminMediaModalComponent: React.FC<AdminMediaModalProps> = ({
+  isOpen,
+  itemToEdit,
+  allItems = [],
+  onClose,
+  onSave,
+  existingPhilosophicalTags,
+  existingStyleTags
+}) => {
+  if (!isOpen) return null;
+
+  // Key used to instantly reset/repopulate form fields when sample is clicked or itemToEdit changes
+  const [formKey, setFormKey] = useState<number>(0);
+  const [formData, setFormData] = useState<FormDataShape>(() => getDefaultFormData(itemToEdit));
+
+  // Mutable ref for immediate access to current values during submission without forcing parent renders
+  const formRef = useRef<FormDataShape>(formData);
+
+  // Sync state whenever itemToEdit changes or modal opens
+  useEffect(() => {
+    const fresh = getDefaultFormData(itemToEdit);
+    setFormData(fresh);
+    formRef.current = fresh;
+    setFormKey((k) => k + 1);
+  }, [itemToEdit, isOpen]);
+
+  // Fast single-field updater that does NOT trigger modal re-render for text inputs
+  const handleUpdateField = useCallback((field: string, val: any) => {
+    (formRef.current as any)[field] = val;
   }, []);
 
-  const handleImportAllKnownMembers = useCallback((participated: boolean = true) => {
-    setBandMembers((prev) => {
-      const existingNames = new Set(prev.map((bm) => bm.name.toLowerCase().trim()));
-      const missing = knownBandMembers.filter((km) => !existingNames.has(km.name.toLowerCase().trim()));
-      if (missing.length > 0) {
-        return [
-          ...prev,
-          ...missing.map((km) => ({
-            ...km,
-            participatedInProduct: participated
-          }))
-        ];
-      }
-      return prev;
-    });
-  }, [knownBandMembers]);
-
-  const handleAddPhiloTag = useCallback((tagToAdd?: string, forceOriginal?: boolean) => {
-    const raw = (tagToAdd || '').trim();
-    if (!raw) return;
-    const cleanedTags = forceOriginal
-      ? [raw]
-      : processTagList(raw, existingPhilosophicalTags);
-    setPhilosophicalTags((prev) => {
-      const updated = [...prev];
-      cleanedTags.forEach((ct) => {
-        if (!updated.some((existing) => existing.toLowerCase().trim() === ct.toLowerCase().trim())) {
-          updated.push(ct);
-        }
-      });
-      return updated;
-    });
-  }, [existingPhilosophicalTags]);
-
-  const handleRemovePhiloTag = useCallback((tagToRemove: string) => {
-    setPhilosophicalTags((prev) => prev.filter((t) => t !== tagToRemove));
+  // Format change handler for conditional sub-sections (Band Lineup, Soundtrack)
+  const handleFormatChange = useCallback((fmt: MediaFormat, isCustom: boolean) => {
+    formRef.current.mediaFormat = fmt;
+    formRef.current.isCustomCategory = isCustom;
+    setFormData((prev) => ({ ...prev, mediaFormat: fmt, isCustomCategory: isCustom }));
   }, []);
 
-  const handleAddStyleTag = useCallback((tagToAdd?: string, forceOriginal?: boolean) => {
-    const raw = (tagToAdd || '').trim();
-    if (!raw) return;
-    const cleanedTags = forceOriginal
-      ? [raw.toLowerCase()]
-      : processTagList(raw, existingStyleTags, { forceLowercase: true });
-    setGenreStyleTags((prev) => {
-      const updated = [...prev];
-      cleanedTags.forEach((ct) => {
-        const lower = ct.toLowerCase();
-        if (!updated.some((existing) => existing.toLowerCase().trim() === lower)) {
-          updated.push(lower);
-        }
-      });
-      return updated;
-    });
-  }, [existingStyleTags]);
-
-  const handleRemoveStyleTag = useCallback((tagToRemove: string) => {
-    setGenreStyleTags((prev) => prev.filter((t) => t !== tagToRemove));
+  const handleCreatorCategoryChange = useCallback((cat: CreatorCategory) => {
+    formRef.current.mainCreatorCategory = cat;
+    setFormData((prev) => ({ ...prev, mainCreatorCategory: cat }));
   }, []);
 
-  const handleAddPro = useCallback(() => setPros((prev) => [...prev, '']), []);
-  const handleUpdatePro = useCallback((index: number, val: string) => {
-    setPros((prev) => {
-      const updated = [...prev];
-      updated[index] = val;
-      return updated;
-    });
-  }, []);
-  const handleRemovePro = useCallback((index: number) => {
-    setPros((prev) => prev.filter((_, i) => i !== index));
+  const handleMainCreatorChange = useCallback((val: string) => {
+    formRef.current.mainCreator = val;
   }, []);
 
-  const handleAddCon = useCallback(() => setCons((prev) => [...prev, '']), []);
-  const handleUpdateCon = useCallback((index: number, val: string) => {
-    setCons((prev) => {
-      const updated = [...prev];
-      updated[index] = val;
-      return updated;
-    });
-  }, []);
-  const handleRemoveCon = useCallback((index: number) => {
-    setCons((prev) => prev.filter((_, i) => i !== index));
-  }, []);
+  // Link Validation Modal State
+  const [pendingLinkMatches, setPendingLinkMatches] = useState<{
+    id: string;
+    field: 'mediumInfluences' | 'similarMedia';
+    rawTitle: string;
+    matchedType: 'product' | 'creator';
+    matchedLabel: string;
+    matchedSub: string;
+    shouldLink: boolean;
+  }[] | null>(null);
+  const [stagedSavedItem, setStagedSavedItem] = useState<MediaItem | null>(null);
 
-  const handleAddLink = useCallback(() => {
-    setLinks((prev) => [...prev, { id: `link-${Date.now()}`, label: 'Link', url: '' }]);
-  }, []);
+  // Collect all known genre tags across items for auto-correction
+  const existingGenresPool = useMemo(() => {
+    const set = new Set<string>();
+    allItems.forEach((i) => i.genres?.forEach((g) => set.add(g.trim())));
+    return Array.from(set);
+  }, [allItems]);
 
-  const handleUpdateLink = useCallback((id: string, field: 'label' | 'url', val: string) => {
-    setLinks((prev) => prev.map((l) => (l.id === id ? { ...l, [field]: val } : l)));
-  }, []);
-
-  const handleRemoveLink = useCallback((id: string) => {
-    setLinks((prev) => prev.filter((l) => l.id !== id));
-  }, []);
-
+  // Fill sample data
   const handleQuickSampleData = useCallback(() => {
-    setCover('https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=800&q=80');
-    setTitle('Solaris');
-    setMainCreator('Stanisław Lem');
-    setMainCreatorCategory('Author');
-    setMainCreatorWiki('https://en.wikipedia.org/wiki/Stanis%C5%82aw_Lem');
-    setCreatorNation('Poland');
-    setOtherCreatorsStr('Andrei Tarkovsky');
-    setMediaFormat('Book');
-    setReleaseDate('1961-11-01');
-    setCountryOfOrigin('Poland');
-    setOriginalLanguage('Polish');
-    setGenresStr('Science Fiction, Philosophical Fiction');
-    setPhilosophicalTags(['Limits of Human Cognition', 'Inscrutable Alien Entity', 'Grief & Memory']);
-    setGenreStyleTags(['Surrealism', 'Psychological Atmospheric']);
-    setPros([
-      'Profound meditation on humanity’s inability to truly comprehend non-human intelligence',
-      'Unforgettably eerie oceanic manifestations of emotional subconscious'
-    ]);
-    setCons([
-      'Academic chapter descriptions slow narrative momentum'
-    ]);
-    setHornetScore(10);
-    setHornetVerdict('A transcendent masterpiece on the epistemological boundaries of human perception.');
-    setSimilarMediaStr('Stalker, Annihilation, Arrival');
-    setLinks([
-      { id: 'l1', label: 'Goodreads', url: 'https://www.goodreads.com/book/show/95558.Solaris' },
-      { id: 'l2', label: 'Product Wikipedia', url: 'https://en.wikipedia.org/wiki/Solaris_(novel)' }
-    ]);
+    const sample: FormDataShape = {
+      cover: 'https://upload.wikimedia.org/wikipedia/en/2/23/Solaris_novel.jpg',
+      title: 'Solaris',
+      mainCreator: 'Stanisław Lem',
+      mainCreatorCategory: 'Author',
+      mainCreatorWiki: 'https://en.wikipedia.org/wiki/Stanis%C5%82aw_Lem',
+      mainCreatorPhoto: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/Stanislaw_Lem_by_Wojciech_Zemek.jpg/440px-Stanislaw_Lem_by_Wojciech_Zemek.jpg',
+      creatorNation: 'Poland',
+      bandMembers: [],
+      otherCreatorsStr: '',
+      mediaFormat: 'Book / Novel',
+      isCustomCategory: false,
+      customCategoryName: '',
+      releaseDate: '1961-01-01',
+      countryOfOrigin: 'Poland',
+      originalLanguage: 'Polish',
+      genresStr: 'Philosophical Sci-Fi, Psychological Drama, Existential Mystery',
+      philosophicalTags: [
+        'Existentialism',
+        'Epistemology',
+        'Solipsism',
+        'Anthropocentrism'
+      ],
+      genreStyleTags: ['surreal', 'eerie', 'cerebral', 'atmospheric'],
+      summaryPlot: 'A psychologist sent to an enigmatic oceanic planet encounters unsettling physical manifestations of his deepest repressed memories.',
+      pros: [
+        'Profound meditation on humanity’s inability to truly comprehend non-human intelligence',
+        'Unforgettably eerie oceanic manifestations of emotional subconscious'
+      ],
+      cons: [
+        'Academic chapter descriptions slow narrative momentum'
+      ],
+      hornetScore: 10,
+      hornetVerdict: 'A transcendent masterpiece on the epistemological boundaries of human perception.',
+      similarMediaStr: 'Stalker, Annihilation, Arrival',
+      similarMediaDetails: [],
+      mediumInfluencesStr: 'Crime and Punishment',
+      mediumInfluencesDetails: [],
+      consumedVersion: '1st Polish Edition (Translated by Bill Johnston)',
+      links: [
+        { id: 'l1', label: 'Goodreads', url: 'https://www.goodreads.com/book/show/95558.Solaris' },
+        { id: 'l2', label: 'Product Wikipedia', url: 'https://en.wikipedia.org/wiki/Solaris_(novel)' }
+      ],
+      isSoundtrack: false,
+      soundtrackForId: '',
+      soundtrackForTitle: '',
+      soundtrackEntries: []
+    };
+
+    setFormData(sample);
+    formRef.current = sample;
+    setFormKey((k) => k + 1);
   }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) {
+    const current = formRef.current;
+
+    if (!current.title.trim()) {
       alert('Please provide a Title.');
       return;
     }
 
-    const mainNameClean = mainCreator.trim().split('/')[0].trim() || 'Unknown Creator';
-    const mainRoleClean = mainCreator.includes('/') ? mainCreator.split('/')[1]?.trim() : null;
+    const mainNameClean = current.mainCreator.trim().split('/')[0].trim() || 'Unknown Creator';
+    const mainRoleClean = current.mainCreator.includes('/') ? current.mainCreator.split('/')[1]?.trim() : null;
 
-    const parsedOtherCreators = otherCreatorsStr
-      ? otherCreatorsStr.split(',').map((s) => s.trim()).filter(Boolean)
+    const parsedOtherCreators = current.otherCreatorsStr
+      ? current.otherCreatorsStr.split(',').map((s) => s.trim()).filter(Boolean)
       : [];
 
     const creatorDetails: CreatorDetails[] = [
       {
         name: mainNameClean,
-        category: (mainRoleClean as CreatorCategory) || mainCreatorCategory,
-        nation: creatorNation.trim() || undefined,
-        wikiUrl: mainCreatorWiki.trim() || `https://en.wikipedia.org/wiki/${encodeURIComponent(mainNameClean)}`,
-        photoUrl: mainCreatorPhoto.trim() || undefined,
-        bandMembers: mainCreatorCategory === 'Band' || bandMembers.length > 0 ? bandMembers : undefined
+        category: (mainRoleClean as CreatorCategory) || current.mainCreatorCategory,
+        nation: current.creatorNation.trim() || undefined,
+        wikiUrl: current.mainCreatorWiki.trim() || `https://en.wikipedia.org/wiki/${encodeURIComponent(mainNameClean)}`,
+        photoUrl: current.mainCreatorPhoto.trim() || undefined,
+        bandMembers: current.mainCreatorCategory === 'Band' || current.bandMembers.length > 0 ? current.bandMembers : undefined
       }
     ];
 
@@ -2190,15 +1969,15 @@ const AdminMediaModalComponent: React.FC<AdminMediaModalProps> = ({
       }
     });
 
-    const formattedCover = formatImageUrl(cover);
+    const formattedCover = formatImageUrl(current.cover);
 
     // Build similarMedia relations
-    const parsedSimilarTitles = similarMediaStr
-      ? similarMediaStr.split(',').map((s) => s.trim()).filter(Boolean)
+    const parsedSimilarTitles = current.similarMediaStr
+      ? current.similarMediaStr.split(',').map((s) => s.trim()).filter(Boolean)
       : [];
 
     const similarMedia: (string | MediaRelationEntry)[] = parsedSimilarTitles.map((t) => {
-      const detail = similarMediaDetails.find((d) => d.title.toLowerCase().trim() === t.toLowerCase().trim());
+      const detail = current.similarMediaDetails.find((d) => d.title.toLowerCase().trim() === t.toLowerCase().trim());
       if (detail && (detail.customCover || detail.note)) {
         return {
           title: t,
@@ -2210,12 +1989,12 @@ const AdminMediaModalComponent: React.FC<AdminMediaModalProps> = ({
     });
 
     // Build mediumInfluences relations
-    const parsedInfluenceTitles = mediumInfluencesStr
-      ? mediumInfluencesStr.split(',').map((s) => s.trim()).filter(Boolean)
+    const parsedInfluenceTitles = current.mediumInfluencesStr
+      ? current.mediumInfluencesStr.split(',').map((s) => s.trim()).filter(Boolean)
       : [];
 
     const mediumInfluences: (string | MediaRelationEntry)[] = parsedInfluenceTitles.map((t) => {
-      const detail = mediumInfluencesDetails.find((d) => d.title.toLowerCase().trim() === t.toLowerCase().trim());
+      const detail = current.mediumInfluencesDetails.find((d) => d.title.toLowerCase().trim() === t.toLowerCase().trim());
       if (detail && (detail.customCover || detail.note)) {
         return {
           title: t,
@@ -2227,120 +2006,109 @@ const AdminMediaModalComponent: React.FC<AdminMediaModalProps> = ({
     });
 
     // Clean genres using existing genres pool
-    const processedGenres = processTagList(genresStr, existingGenresPool);
-    const processedPhiloTags = processTagList(philosophicalTags, existingPhilosophicalTags);
-    const processedStyleTags = processTagList(genreStyleTags, existingStyleTags);
+    const processedGenres = processTagList(current.genresStr, existingGenresPool);
+    const processedPhiloTags = processTagList(current.philosophicalTags, existingPhilosophicalTags);
+    const processedStyleTags = processTagList(current.genreStyleTags, existingStyleTags);
 
-    const targetFormat = isCustomCategory ? (customCategoryName.trim() || 'Custom Category') : mediaFormat;
+    const targetFormat = current.isCustomCategory ? (current.customCategoryName.trim() || 'Custom Category') : current.mediaFormat;
     const { canonicalFormat, isCustom: finalIsCustom } = normalizeMediaFormat(targetFormat);
-    const effectiveFormat = finalIsCustom ? (customCategoryName.trim() || 'Custom Category') : canonicalFormat;
+    const effectiveFormat = finalIsCustom ? (current.customCategoryName.trim() || 'Custom Category') : canonicalFormat;
 
     const newItem: MediaItem = {
       id: itemToEdit ? itemToEdit.id : `item-${Date.now()}`,
       cover: formattedCover,
-      title: title.trim(),
-      mainCreator: mainCreator.trim() || 'Unknown Creator',
+      title: current.title.trim(),
+      mainCreator: current.mainCreator.trim() || 'Unknown Creator',
       otherCreators: parsedOtherCreators,
       creatorDetails,
       mediaFormat: effectiveFormat,
       isCustomCategory: finalIsCustom,
-      customCategoryName: finalIsCustom ? (customCategoryName.trim() || 'Custom Category') : undefined,
-      releaseDate: releaseDate.trim() || new Date().toISOString().substring(0, 10),
-      countryOfOrigin: countryOfOrigin.trim() || undefined,
-      originalLanguage: originalLanguage.trim() || undefined,
+      customCategoryName: finalIsCustom ? (current.customCategoryName.trim() || 'Custom Category') : undefined,
+      releaseDate: current.releaseDate.trim() || new Date().toISOString().substring(0, 10),
+      countryOfOrigin: current.countryOfOrigin.trim() || undefined,
+      originalLanguage: current.originalLanguage.trim() || undefined,
       genres: processedGenres,
       philosophicalTags: processedPhiloTags,
       genreStyleTags: processedStyleTags,
-      summaryPlot: summaryPlot.trim(),
-      pros: pros.map((p) => p.trim()).filter(Boolean),
-      cons: cons.map((c) => c.trim()).filter(Boolean),
-      hornetScore,
-      hornetVerdict: hornetVerdict.trim(),
+      summaryPlot: current.summaryPlot.trim(),
+      pros: current.pros.map((p) => p.trim()).filter(Boolean),
+      cons: current.cons.map((c) => c.trim()).filter(Boolean),
+      hornetScore: current.hornetScore,
+      hornetVerdict: current.hornetVerdict.trim(),
       similarMedia,
       mediumInfluences,
-      consumedVersion: consumedVersion.trim(),
-      isSoundtrack: mediaFormat === 'Music Album' ? isSoundtrack : false,
-      soundtrackForId: mediaFormat === 'Music Album' && isSoundtrack ? (soundtrackForId.trim() || undefined) : undefined,
-      soundtrackForTitle: mediaFormat === 'Music Album' && isSoundtrack ? (soundtrackForTitle.trim() || undefined) : undefined,
-      soundtracks: mediaFormat !== 'Music Album' && soundtrackEntries.filter((s) => s.title.trim() !== '').length > 0 
-        ? soundtrackEntries.filter((s) => s.title.trim() !== '')
+      consumedVersion: current.consumedVersion.trim() || undefined,
+      links: current.links.filter((l) => l.label.trim() && l.url.trim()),
+      isSoundtrack: current.mediaFormat === 'Music Album' ? current.isSoundtrack : undefined,
+      soundtrackForId: current.mediaFormat === 'Music Album' && current.isSoundtrack ? current.soundtrackForId || undefined : undefined,
+      soundtrackForTitle: current.mediaFormat === 'Music Album' && current.isSoundtrack ? current.soundtrackForTitle || undefined : undefined,
+      soundtracks: current.mediaFormat !== 'Music Album' && current.soundtrackEntries.length > 0
+        ? current.soundtrackEntries.filter((s) => s.title.trim())
         : undefined,
-      soundtrackId: mediaFormat !== 'Music Album' && soundtrackEntries.filter((s) => s.title.trim() !== '').length > 0
-        ? soundtrackEntries.filter((s) => s.title.trim() !== '')[0]?.id
-        : undefined,
-      soundtrackTitle: mediaFormat !== 'Music Album' && soundtrackEntries.filter((s) => s.title.trim() !== '').length > 0
-        ? soundtrackEntries.filter((s) => s.title.trim() !== '')[0]?.title
-        : undefined,
-      links: links.filter((l) => l.url.trim() !== ''),
-      createdAt: itemToEdit?.createdAt || new Date().toISOString(),
+      createdAt: itemToEdit ? itemToEdit.createdAt : new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
 
-    // Link Validation Check: Check if references match existing items/creators in Archive
-    if (allItems && allItems.length > 0 && pendingLinkMatches === null) {
-      const matches: {
-        id: string;
-        field: 'mediumInfluences' | 'similarMedia';
-        rawTitle: string;
-        matchedType: 'product' | 'creator';
-        matchedLabel: string;
-        matchedSub: string;
-        shouldLink: boolean;
-      }[] = [];
+    // Check for interconnected link matches in archive
+    if (allItems.length > 0) {
+      const matches: typeof pendingLinkMatches = [];
 
-      // Check influences
-      parsedInfluenceTitles.forEach((t, idx) => {
+      parsedInfluenceTitles.forEach((t) => {
         const norm = t.toLowerCase().trim();
-        if (!norm) return;
-        const matchProd = allItems.find((i) => i.id !== (itemToEdit?.id || '') && i.title.toLowerCase().trim() === norm);
-        if (matchProd) {
+        const existingDetail = current.mediumInfluencesDetails.find((d) => d.title.toLowerCase().trim() === norm);
+        if (existingDetail?.unlinked) return;
+
+        const matchedProd = allItems.find((i) => i.id !== (itemToEdit?.id || '') && i.title.toLowerCase().trim() === norm);
+        if (matchedProd) {
           matches.push({
-            id: `inf-${idx}-${norm}`,
+            id: `inf-${norm}`,
             field: 'mediumInfluences',
             rawTitle: t,
             matchedType: 'product',
-            matchedLabel: matchProd.title,
-            matchedSub: `${matchProd.mediaFormat} (${matchProd.releaseDate?.substring(0, 4)}) by ${matchProd.mainCreator}`,
+            matchedLabel: matchedProd.title,
+            matchedSub: `${matchedProd.mediaFormat} (${matchedProd.releaseDate?.substring(0, 4) || ''}) by ${matchedProd.mainCreator}`,
             shouldLink: true
           });
           return;
         }
-        const matchCreator = allItems.find(
+
+        const matchedCreator = allItems.find(
           (i) =>
             i.mainCreator?.toLowerCase().trim() === norm ||
             i.otherCreators?.some((c) => c.toLowerCase().trim() === norm) ||
             i.creatorDetails?.some((cd) => cd.name.toLowerCase().trim() === norm)
         );
-        if (matchCreator) {
+        if (matchedCreator) {
           const creatorName =
-            matchCreator.mainCreator?.toLowerCase().trim() === norm
-              ? matchCreator.mainCreator
-              : matchCreator.creatorDetails?.find((cd) => cd.name.toLowerCase().trim() === norm)?.name || t;
+            matchedCreator.mainCreator?.toLowerCase().trim() === norm
+              ? matchedCreator.mainCreator
+              : matchedCreator.creatorDetails?.find((cd) => cd.name.toLowerCase().trim() === norm)?.name || t;
           matches.push({
-            id: `inf-${idx}-${norm}`,
+            id: `inf-c-${norm}`,
             field: 'mediumInfluences',
             rawTitle: t,
             matchedType: 'creator',
             matchedLabel: creatorName,
-            matchedSub: 'Creator Bio in Archive',
+            matchedSub: `Creator referenced in "${matchedCreator.title}" (${matchedCreator.mediaFormat})`,
             shouldLink: true
           });
         }
       });
 
-      // Check similar media
-      parsedSimilarTitles.forEach((t, idx) => {
+      parsedSimilarTitles.forEach((t) => {
         const norm = t.toLowerCase().trim();
-        if (!norm) return;
-        const matchProd = allItems.find((i) => i.id !== (itemToEdit?.id || '') && i.title.toLowerCase().trim() === norm);
-        if (matchProd) {
+        const existingDetail = current.similarMediaDetails.find((d) => d.title.toLowerCase().trim() === norm);
+        if (existingDetail?.unlinked) return;
+
+        const matchedProd = allItems.find((i) => i.id !== (itemToEdit?.id || '') && i.title.toLowerCase().trim() === norm);
+        if (matchedProd) {
           matches.push({
-            id: `sim-${idx}-${norm}`,
+            id: `sim-${norm}`,
             field: 'similarMedia',
             rawTitle: t,
             matchedType: 'product',
-            matchedLabel: matchProd.title,
-            matchedSub: `${matchProd.mediaFormat} (${matchProd.releaseDate?.substring(0, 4)}) by ${matchProd.mainCreator}`,
+            matchedLabel: matchedProd.title,
+            matchedSub: `${matchedProd.mediaFormat} (${matchedProd.releaseDate?.substring(0, 4) || ''}) by ${matchedProd.mainCreator}`,
             shouldLink: true
           });
         }
@@ -2449,156 +2217,158 @@ const AdminMediaModalComponent: React.FC<AdminMediaModalProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
-        <ModalHeader
-          isEditing={Boolean(itemToEdit)}
-          onQuickSample={handleQuickSampleData}
-          onClose={onClose}
-        />
+        <div className="flex items-center justify-between px-6 py-4 bg-slate-950 border-b border-slate-800 shrink-0">
+          <div className="flex items-center gap-2">
+            <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400">
+              <Wand2 size={18} />
+            </div>
+            <div>
+              <h3 className="text-base sm:text-lg font-bold font-mono text-slate-100">
+                {itemToEdit ? 'EDIT MEDIA ARCHIVE ENTRY' : 'ADD NEW MEDIA ARCHIVE ENTRY'}
+              </h3>
+              <p className="text-xs text-slate-400 font-sans">Admin Control Panel</p>
+            </div>
+          </div>
 
-        {/* Scrollable Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-6">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleQuickSampleData}
+              className="px-3 py-1.5 rounded-lg bg-indigo-950/70 hover:bg-indigo-900/80 text-indigo-300 border border-indigo-700/50 text-xs font-mono flex items-center gap-1 transition cursor-pointer"
+              title="Autofill sample fields"
+            >
+              <Wand2 size={13} />
+              <span className="hidden sm:inline">Fill Sample</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* Scrollable Form Body with Localized Sub-Form Sections */}
+        <form key={formKey} onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-6">
           {/* Cover Section */}
           <CoverSection
-            cover={cover}
-            onChangeCover={setCover}
+            initialCover={formData.cover}
+            onUpdate={(val) => handleUpdateField('cover', val)}
           />
 
           {/* Basic Info */}
           <BasicInfoSection
-            title={title}
-            onChangeTitle={setTitle}
-            mediaFormat={mediaFormat}
-            onChangeMediaFormat={setMediaFormat}
-            isCustomCategory={isCustomCategory}
-            onChangeIsCustomCategory={setIsCustomCategory}
-            customCategoryName={customCategoryName}
-            onChangeCustomCategoryName={setCustomCategoryName}
-            countryOfOrigin={countryOfOrigin}
-            onChangeCountryOfOrigin={setCountryOfOrigin}
-            originalLanguage={originalLanguage}
-            onChangeOriginalLanguage={setOriginalLanguage}
+            initialTitle={formData.title}
+            initialFormat={formData.mediaFormat}
+            initialIsCustom={formData.isCustomCategory}
+            initialCustomName={formData.customCategoryName}
+            initialCountry={formData.countryOfOrigin}
+            initialLanguage={formData.originalLanguage}
+            onUpdateField={handleUpdateField}
+            onFormatChange={handleFormatChange}
           />
 
           {/* Soundtrack Setup */}
           <SoundtrackSection
-            mediaFormat={mediaFormat}
-            isSoundtrack={isSoundtrack}
-            onChangeIsSoundtrack={setIsSoundtrack}
-            soundtrackForId={soundtrackForId}
-            onChangeSoundtrackForId={(id, stTitle) => {
-              setSoundtrackForId(id);
-              if (stTitle) setSoundtrackForTitle(stTitle);
-            }}
-            soundtrackForTitle={soundtrackForTitle}
-            onChangeSoundtrackForTitle={setSoundtrackForTitle}
-            soundtrackEntries={soundtrackEntries}
-            onChangeSoundtrackEntries={setSoundtrackEntries}
-            targetMediaOptions={targetMediaOptions}
-            soundtrackAlbumOptions={soundtrackAlbumOptions}
+            mediaFormat={formData.mediaFormat}
+            initialIsSoundtrack={formData.isSoundtrack}
+            initialSoundtrackForId={formData.soundtrackForId}
+            initialSoundtrackForTitle={formData.soundtrackForTitle}
+            initialSoundtrackEntries={formData.soundtrackEntries}
             allItems={allItems}
+            onUpdateField={handleUpdateField}
           />
 
           {/* Creator Profile */}
           <CreatorSection
-            mainCreator={mainCreator}
-            onChangeMainCreator={setMainCreator}
-            mainCreatorCategory={mainCreatorCategory}
-            onChangeMainCreatorCategory={setMainCreatorCategory}
-            creatorNation={creatorNation}
-            onChangeCreatorNation={setCreatorNation}
-            mainCreatorWiki={mainCreatorWiki}
-            onChangeMainCreatorWiki={setMainCreatorWiki}
-            mainCreatorPhoto={mainCreatorPhoto}
-            onChangeMainCreatorPhoto={setMainCreatorPhoto}
+            initialMainCreator={formData.mainCreator}
+            initialCategory={formData.mainCreatorCategory}
+            initialNation={formData.creatorNation}
+            initialWiki={formData.mainCreatorWiki}
+            initialPhoto={formData.mainCreatorPhoto}
+            onUpdateField={handleUpdateField}
+            onCategoryChange={handleCreatorCategoryChange}
+            onMainCreatorChange={handleMainCreatorChange}
           />
 
           {/* Band Lineup & Lineup for this product */}
-          {(mainCreatorCategory === 'Band' || bandMembers.length > 0) && (
+          {(formData.mainCreatorCategory === 'Band' || formData.bandMembers.length > 0) && (
             <BandLineupSection
-              mainCreator={mainCreator}
-              bandMembers={bandMembers}
-              knownBandMembers={knownBandMembers}
-              onAddBandMember={handleAddBandMember}
-              onAddPresetMember={handleAddPresetMember}
-              onUpdateBandMember={handleUpdateBandMember}
-              onRemoveBandMember={handleRemoveBandMember}
-              onImportBulkText={handleImportBulkText}
-              onImportKnownMember={handleImportKnownMember}
-              onImportAllKnownMembers={handleImportAllKnownMembers}
+              mainCreator={formData.mainCreator}
+              initialBandMembers={formData.bandMembers}
+              allItems={allItems}
+              onUpdateMembers={(members) => handleUpdateField('bandMembers', members)}
             />
           )}
 
           {/* Other Associated Creators, Release Date, Consumed Version */}
           <ReleaseAndOtherCreatorsSection
-            otherCreatorsStr={otherCreatorsStr}
-            onChangeOtherCreatorsStr={setOtherCreatorsStr}
-            releaseDate={releaseDate}
-            onChangeReleaseDate={setReleaseDate}
-            consumedVersion={consumedVersion}
-            onChangeConsumedVersion={setConsumedVersion}
+            initialOtherCreators={formData.otherCreatorsStr}
+            initialReleaseDate={formData.releaseDate}
+            initialConsumedVersion={formData.consumedVersion}
+            onUpdateField={handleUpdateField}
           />
 
           {/* Genres & Tags */}
           <GenresAndTagsSection
-            genresStr={genresStr}
-            onChangeGenresStr={setGenresStr}
-            philosophicalTags={philosophicalTags}
-            onAddPhiloTag={handleAddPhiloTag}
-            onRemovePhiloTag={handleRemovePhiloTag}
+            initialGenresStr={formData.genresStr}
+            initialPhilosophicalTags={formData.philosophicalTags}
+            initialGenreStyleTags={formData.genreStyleTags}
             existingPhilosophicalTags={existingPhilosophicalTags}
-            genreStyleTags={genreStyleTags}
-            onAddStyleTag={handleAddStyleTag}
-            onRemoveStyleTag={handleRemoveStyleTag}
             existingStyleTags={existingStyleTags}
+            onUpdateField={handleUpdateField}
           />
 
           {/* Review, Summary Plot, Hornet's Score & Verdict */}
           <ReviewAndScoringSection
-            summaryPlot={summaryPlot}
-            onChangeSummaryPlot={setSummaryPlot}
-            hornetScore={hornetScore}
-            onChangeHornetScore={setHornetScore}
-            hornetVerdict={hornetVerdict}
-            onChangeHornetVerdict={setHornetVerdict}
+            initialPlot={formData.summaryPlot}
+            initialScore={formData.hornetScore}
+            initialVerdict={formData.hornetVerdict}
+            onUpdateField={handleUpdateField}
           />
 
           {/* Pros & Cons */}
           <ProsAndConsSection
-            pros={pros}
-            onAddPro={handleAddPro}
-            onUpdatePro={handleUpdatePro}
-            onRemovePro={handleRemovePro}
-            cons={cons}
-            onAddCon={handleAddCon}
-            onUpdateCon={handleUpdateCon}
-            onRemoveCon={handleRemoveCon}
+            initialPros={formData.pros}
+            initialCons={formData.cons}
+            onUpdateField={handleUpdateField}
           />
 
           {/* Medium Influences & Similar Media */}
           <RelationsSection
-            mediumInfluencesStr={mediumInfluencesStr}
-            onChangeMediumInfluencesStr={setMediumInfluencesStr}
-            mediumInfluencesDetails={mediumInfluencesDetails}
-            onChangeMediumInfluencesDetails={setMediumInfluencesDetails}
-            similarMediaStr={similarMediaStr}
-            onChangeSimilarMediaStr={setSimilarMediaStr}
-            similarMediaDetails={similarMediaDetails}
-            onChangeSimilarMediaDetails={setSimilarMediaDetails}
+            initialInfluencesStr={formData.mediumInfluencesStr}
+            initialInfluencesDetails={formData.mediumInfluencesDetails}
+            initialSimilarStr={formData.similarMediaStr}
+            initialSimilarDetails={formData.similarMediaDetails}
+            onUpdateField={handleUpdateField}
           />
 
           {/* External Links */}
           <ExternalLinksSection
-            links={links}
-            onAddLink={handleAddLink}
-            onUpdateLink={handleUpdateLink}
-            onRemoveLink={handleRemoveLink}
+            initialLinks={formData.links}
+            onUpdateLinks={(links) => handleUpdateField('links', links)}
           />
 
           {/* Save Action Bar */}
-          <ModalActionBar
-            isEditing={Boolean(itemToEdit)}
-            onClose={onClose}
-          />
+          <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-xs transition cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-6 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-mono font-bold text-xs sm:text-sm flex items-center gap-2 shadow transition cursor-pointer"
+            >
+              <Save size={16} />
+              <span>{itemToEdit ? 'Update Entry' : 'Save To Archive'}</span>
+            </button>
+          </div>
         </form>
       </div>
 

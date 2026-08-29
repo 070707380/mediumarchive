@@ -9,8 +9,7 @@ import {
   Upload,
   Lock,
   AlertTriangle,
-  Link2,
-  SlidersHorizontal
+  Link2
 } from 'lucide-react';
 
 interface AdminToolsDrawerProps {
@@ -19,10 +18,8 @@ interface AdminToolsDrawerProps {
   onDatabaseUpdate: (items: MediaItem[]) => void;
   onLockAdmin: () => void;
   onRunLinkScan?: () => void;
-  onOpenScoreAudit?: () => void;
   adminPasscode?: string;
   currentItems?: MediaItem[];
-  pendingAuditCount?: number;
 }
 
 export const AdminToolsDrawer: React.FC<AdminToolsDrawerProps> = ({
@@ -31,10 +28,8 @@ export const AdminToolsDrawer: React.FC<AdminToolsDrawerProps> = ({
   onDatabaseUpdate,
   onLockAdmin,
   onRunLinkScan,
-  onOpenScoreAudit,
   adminPasscode,
   currentItems,
-  pendingAuditCount = 0,
 }) => {
   if (!isOpen) return null;
 
@@ -154,42 +149,7 @@ export const AdminToolsDrawer: React.FC<AdminToolsDrawerProps> = ({
               )}
             </div>
 
-            {/* Action 3: Score Consistency & Calibration Audit */}
-            {onOpenScoreAudit && (
-              <div className={`p-4 rounded-xl border space-y-2 ${pendingAuditCount > 0 ? 'bg-amber-950/30 border-amber-500/50' : 'bg-purple-950/20 border-purple-800/40'}`}>
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-purple-300 flex items-center gap-1.5">
-                    <SlidersHorizontal size={14} className={pendingAuditCount > 0 ? 'text-amber-400' : 'text-purple-400'} /> Score Consistency & Calibration Audit
-                  </h4>
-                  {pendingAuditCount > 0 && (
-                    <span className="px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 font-mono font-bold text-[10px] animate-pulse">
-                      {pendingAuditCount} Pending
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-slate-400">
-                  Evaluates pros/cons and rating scale criteria against your scoring philosophy to detect uncalibrated scores and request approval.
-                </p>
-                <button
-                  onClick={() => {
-                    onClose();
-                    onOpenScoreAudit();
-                  }}
-                  className={`w-full py-2 rounded-lg font-mono font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow ${
-                    pendingAuditCount > 0
-                      ? 'bg-amber-500 hover:bg-amber-400 text-slate-950'
-                      : 'bg-purple-600 hover:bg-purple-500 text-white'
-                  }`}
-                >
-                  <SlidersHorizontal size={14} />
-                  {pendingAuditCount > 0
-                    ? `Review ${pendingAuditCount} Score Request${pendingAuditCount > 1 ? 's' : ''}`
-                    : 'Audit & Calibrate Scores'}
-                </button>
-              </div>
-            )}
-
-            {/* Action 4: Scan & Link Interconnected Database */}
+            {/* Action: Scan & Link Interconnected Database */}
             {onRunLinkScan && (
               <div className="p-4 rounded-xl bg-amber-950/20 border border-amber-800/40 space-y-2">
                 <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">

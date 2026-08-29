@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useDeferredValue } from 'react';
-import { MediaItem, FilterOptions, DEFAULT_SCORING_PHILOSOPHY, ScoreAuditSuggestion, RATING_SCALE_LEVELS } from './types';
+import { MediaItem, FilterOptions, DEFAULT_SCORING_PHILOSOPHY, RATING_SCALE_LEVELS } from './types';
 import { extractReleaseYear, getDecadeFromYear } from './utils/dateUtils';
 import { getSortableTitle } from './utils/stringUtils';
 import { buildCompositeQualityRankMap, getItemScore } from './utils/sortUtils';
@@ -22,10 +22,9 @@ import { DonatePage } from './components/DonatePage';
 import { CreatorBioModal } from './components/CreatorBioModal';
 import { GlobalTagModal } from './components/GlobalTagModal';
 import { LinkConfirmationModal } from './components/LinkConfirmationModal';
-import { ScoreAuditModal } from './components/ScoreAuditModal';
 import { TableView } from './components/TableView';
 import { parseUrlRoute, updateUrlRoute } from './utils/urlUtils';
-import { ShieldCheck, Plus, Layers, Lock, Database, User, Heart, LayoutGrid, Table, CheckCircle2, SlidersHorizontal } from 'lucide-react';
+import { ShieldCheck, Plus, Layers, Lock, Database, User, Heart, LayoutGrid, Table, CheckCircle2 } from 'lucide-react';
 
 export default function App() {
   const [items, setItems] = useState<MediaItem[]>(() => storageService.getMediaItems());
@@ -72,8 +71,6 @@ export default function App() {
   const [isAdminMediaModalOpen, setIsAdminMediaModalOpen] = useState(false);
   const [itemToEdit, setItemToEdit] = useState<MediaItem | null>(null);
   const [isAdminToolsOpen, setIsAdminToolsOpen] = useState(false);
-  const [isScoreAuditModalOpen, setIsScoreAuditModalOpen] = useState(false);
-  const [pendingAuditSuggestions, setPendingAuditSuggestions] = useState<ScoreAuditSuggestion[]>([]);
 
   // Filter options state
   const [filters, setFilters] = useState<FilterOptions>({
@@ -234,53 +231,6 @@ export default function App() {
       clearTimeout(timer);
     };
   }, [items, scoringPhilosophy]);
-
-  // Live background score calibration detection when in admin mode or when items are modified
-  useEffect(() => {
-    let isMounted = true;
-    if (!isAdmin || !items || items.length === 0) {
-      setPendingAuditSuggestions([]);
-      return;
-    }
-
-    const runAutoAudit = async () => {
-      try {
-        const rejectedIds = storageService.getRejectedAuditIds();
-        const res = await fetch('/api/score-audit', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            items,
-            scoringPhilosophy,
-            ratingLevels: RATING_SCALE_LEVELS,
-            rejectedIds,
-          }),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          if (isMounted && data.success && Array.isArray(data.suggestions)) {
-            const itemMap = new Map(items.map((i) => [i.id, i]));
-            const hydrated = data.suggestions
-              .filter((s: ScoreAuditSuggestion) => itemMap.has(s.id))
-              .map((s: ScoreAuditSuggestion) => ({
-                ...s,
-                item: itemMap.get(s.id),
-              }));
-            setPendingAuditSuggestions(hydrated);
-          }
-        }
-      } catch (e) {
-        // silent fallback
-      }
-    };
-
-    const timer = setTimeout(runAutoAudit, 500);
-    return () => {
-      isMounted = false;
-      clearTimeout(timer);
-    };
-  }, [items, isAdmin, scoringPhilosophy]);
 
   // Compute all unique philosophical tags and style tags across current database
   const allPhilosophicalTags = useMemo(() => {
@@ -729,44 +679,6 @@ export default function App() {
     }
   };
 
-  const handleAcceptScoreUpdate = async (itemId: string, newScore: number) => {
-    const updated = items.map((item) => {
-      if (item.id === itemId) {
-        return {
-          ...item,
-          hornetScore: newScore,
-          updatedAt: new Date().toISOString(),
-        };
-      }
-      return item;
-    });
-
-    setItems(updated);
-    storageService.saveAllMediaItems(updated);
-    if (selectedMedia && selectedMedia.id === itemId) {
-      setSelectedMedia({
-        ...selectedMedia,
-        hornetScore: newScore,
-        updatedAt: new Date().toISOString(),
-      });
-    }
-
-    setIsSaving(true);
-    setSaveStatusMessage('Calibrating score and saving to server archive.json...');
-    try {
-      const activeCode = adminPasscode || storageService.getAdminPasscode();
-      await storageService.saveArchiveServer(updated, activeCode);
-      setSaveStatusMessage('Score updated and saved to archive.json!');
-      setTimeout(() => setSaveStatusMessage(null), 3000);
-    } catch (err: any) {
-      console.error('Failed to sync score calibration to server:', err);
-      setSaveStatusMessage('Saved locally (server sync warning).');
-      setTimeout(() => setSaveStatusMessage(null), 3000);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   const handleDeleteMedia = async (id: string) => {
     const updated = items.filter((i) => i.id !== id);
     setItems(updated);
@@ -943,24 +855,6 @@ export default function App() {
               >
                 <Plus size={11} /> <span>Add<span className="hidden sm:inline"> Item</span></span>
               </button>
-              {pendingAuditSuggestions.length > 0 ? (
-                <button
-                  onClick={() => setIsScoreAuditModalOpen(true)}
-                  className="bg-amber-400 hover:bg-amber-300 text-slate-950 px-2.5 py-0.5 rounded text-[10px] sm:text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shadow-md animate-pulse"
-                  title="Score inconsistency detected! Click to review calibration request."
-                >
-                  <SlidersHorizontal size={11} className="text-slate-950" />
-                  <span>⚠️ {pendingAuditSuggestions.length} Calibration Request{pendingAuditSuggestions.length > 1 ? 's' : ''}</span>
-                </button>
-              ) : (
-                <button
-                  onClick={() => setIsScoreAuditModalOpen(true)}
-                  className="bg-slate-950 hover:bg-slate-900 text-amber-300 px-2 py-0.5 rounded text-[10px] sm:text-[11px] font-bold flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
-                  title="Audit score consistency against philosophy and pros/cons"
-                >
-                  <SlidersHorizontal size={11} /> <span>Audit<span className="hidden sm:inline"> / Calibrate</span></span>
-                </button>
-              )}
               <button
                 onClick={() => setIsAdminToolsOpen(true)}
                 className="bg-slate-950 hover:bg-slate-900 text-slate-200 px-2 py-0.5 rounded text-[10px] sm:text-[11px] flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
@@ -1409,22 +1303,8 @@ export default function App() {
           }}
           onLockAdmin={() => setIsAdmin(false)}
           onRunLinkScan={handleRunFullLinkScan}
-          onOpenScoreAudit={() => setIsScoreAuditModalOpen(true)}
           adminPasscode={adminPasscode}
           currentItems={items}
-          pendingAuditCount={pendingAuditSuggestions.length}
-        />
-      )}
-
-      {isAdmin && isScoreAuditModalOpen && (
-        <ScoreAuditModal
-          isOpen={isScoreAuditModalOpen}
-          onClose={() => setIsScoreAuditModalOpen(false)}
-          items={items}
-          scoringPhilosophy={scoringPhilosophy}
-          onAcceptScoreUpdate={handleAcceptScoreUpdate}
-          initialSuggestions={pendingAuditSuggestions}
-          onAuditSuggestionsChange={setPendingAuditSuggestions}
         />
       )}
 

@@ -5,7 +5,6 @@ import { normalizeMediaFormat } from '../utils/formatUtils';
 const STORAGE_KEY = 'medium_archive_items_v2';
 const PASSCODE_KEY = 'medium_archive_admin_passcode_v1';
 const DELETED_ITEMS_KEY = 'medium_archive_deleted_ids_v1';
-const REJECTED_AUDIT_IDS_KEY = 'medium_archive_rejected_audit_ids_v1';
 
 const URL_KEYS = new Set([
   'cover',
@@ -529,30 +528,5 @@ export const storageService = {
       console.warn('Backend passcode verification notice:', err);
     }
     return false;
-  },
-
-  getRejectedAuditIds(): string[] {
-    try {
-      const raw = localStorage.getItem(REJECTED_AUDIT_IDS_KEY);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  },
-
-  addRejectedAuditId(id: string): void {
-    try {
-      const current = new Set(this.getRejectedAuditIds());
-      current.add(id);
-      localStorage.setItem(REJECTED_AUDIT_IDS_KEY, JSON.stringify(Array.from(current)));
-    } catch (err) {
-      console.warn('Failed to save rejected audit ID:', err);
-    }
-  },
-
-  clearRejectedAuditIds(): void {
-    localStorage.removeItem(REJECTED_AUDIT_IDS_KEY);
-  },
+  }
 };

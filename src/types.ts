@@ -136,24 +136,6 @@ export interface RatingLevel {
   bgBadge: string;
 }
 
-export interface ScoreAuditSuggestion {
-  id: string;
-  item?: MediaItem;
-  currentScore: number;
-  suggestedScore: number;
-  critique: string;
-  imbalanceReason?: string;
-  confidence?: 'high' | 'medium';
-  isDismissed?: boolean;
-}
-
-export interface AlignedAuditItem {
-  id: string;
-  item?: MediaItem;
-  currentScore: number;
-  alignmentNote: string;
-}
-
 export const RATING_SCALE_LEVELS: RatingLevel[] = [
   { score: 10, label: 'Hornet Essential', description: 'Peak media for Hornet. Transcendent artistic pinnacle with permanent personal resonance.', color: 'text-purple-300', bgBadge: 'bg-purple-500/20 text-purple-300 border-purple-500/50' },
   { score: 9, label: 'Masterpiece', description: 'Flawless work. A monumental achievement with profound vision and faultless execution.', color: 'text-purple-400', bgBadge: 'bg-purple-500/20 text-purple-300 border-purple-500/50' },
