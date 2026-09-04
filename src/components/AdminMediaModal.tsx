@@ -149,8 +149,12 @@ function getDefaultFormData(itemToEdit: MediaItem | null): FormDataShape {
       countryOfOrigin: itemToEdit.countryOfOrigin || '',
       originalLanguage: itemToEdit.originalLanguage || '',
       genresStr: itemToEdit.genres?.join(', ') || '',
-      philosophicalTags: itemToEdit.philosophicalTags ? [...itemToEdit.philosophicalTags] : [],
-      genreStyleTags: (itemToEdit.genreStyleTags || []).map((t) => t.toLowerCase()),
+      philosophicalTags: itemToEdit.philosophicalTags
+        ? itemToEdit.philosophicalTags.flatMap((t) => (typeof t === 'string' ? t.split(/[,;\n]+/) : [])).map((s) => s.trim()).filter(Boolean)
+        : [],
+      genreStyleTags: itemToEdit.genreStyleTags
+        ? itemToEdit.genreStyleTags.flatMap((t) => (typeof t === 'string' ? t.split(/[,;\n]+/) : [])).map((s) => s.trim().toLowerCase()).filter(Boolean)
+        : [],
       summaryPlot: itemToEdit.summaryPlot || '',
       pros: itemToEdit.pros && itemToEdit.pros.length > 0 ? [...itemToEdit.pros] : [''],
       cons: itemToEdit.cons && itemToEdit.cons.length > 0 ? [...itemToEdit.cons] : [''],
@@ -1141,10 +1145,24 @@ const GenresAndTagsSection = React.memo<{
     setStyleTags(initialGenreStyleTags);
   }, [initialGenresStr, initialPhilosophicalTags, initialGenreStyleTags]);
 
-  const handleAddPhilo = (tag: string) => {
-    const t = tag.trim();
-    if (t && !philoTags.some((pt) => pt.toLowerCase() === t.toLowerCase())) {
-      const next = [...philoTags, t];
+  const handleAddPhilo = (input: string) => {
+    if (!input) return;
+    const parts = input
+      .split(/[,;\n]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (parts.length === 0) return;
+
+    const currentLower = new Set(philoTags.map((pt) => pt.toLowerCase()));
+    const toAdd: string[] = [];
+    for (const p of parts) {
+      if (!currentLower.has(p.toLowerCase())) {
+        currentLower.add(p.toLowerCase());
+        toAdd.push(p);
+      }
+    }
+    if (toAdd.length > 0) {
+      const next = [...philoTags, ...toAdd];
       setPhiloTags(next);
       onUpdateField('philosophicalTags', next);
     }
@@ -1157,10 +1175,24 @@ const GenresAndTagsSection = React.memo<{
     onUpdateField('philosophicalTags', next);
   };
 
-  const handleAddStyle = (tag: string) => {
-    const t = tag.trim().toLowerCase();
-    if (t && !styleTags.includes(t)) {
-      const next = [...styleTags, t];
+  const handleAddStyle = (input: string) => {
+    if (!input) return;
+    const parts = input
+      .split(/[,;\n]+/)
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    if (parts.length === 0) return;
+
+    const currentSet = new Set(styleTags);
+    const toAdd: string[] = [];
+    for (const p of parts) {
+      if (!currentSet.has(p)) {
+        currentSet.add(p);
+        toAdd.push(p);
+      }
+    }
+    if (toAdd.length > 0) {
+      const next = [...styleTags, ...toAdd];
       setStyleTags(next);
       onUpdateField('genreStyleTags', next);
     }
@@ -1202,7 +1234,14 @@ const GenresAndTagsSection = React.memo<{
               type="text"
               placeholder="e.g. Nihilism, Free Will..."
               value={customPhilo}
-              onChange={(e) => setCustomPhilo(e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val.includes(',') || val.includes(';')) {
+                  handleAddPhilo(val);
+                } else {
+                  setCustomPhilo(val);
+                }
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
@@ -1266,7 +1305,14 @@ const GenresAndTagsSection = React.memo<{
               type="text"
               placeholder="e.g. atmospheric, melancholic, brutalist..."
               value={customStyle}
-              onChange={(e) => setCustomStyle(e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val.includes(',') || val.includes(';')) {
+                  handleAddStyle(val);
+                } else {
+                  setCustomStyle(val);
+                }
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();

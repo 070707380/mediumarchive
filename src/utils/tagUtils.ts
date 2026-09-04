@@ -104,7 +104,7 @@ export function processTagList(
   if (typeof inputTags === 'string') {
     list = inputTags.split(/[,;\n]+/);
   } else if (Array.isArray(inputTags)) {
-    list = inputTags;
+    list = inputTags.flatMap((t) => (typeof t === 'string' ? t.split(/[,;\n]+/) : []));
   }
 
   const result: string[] = [];
