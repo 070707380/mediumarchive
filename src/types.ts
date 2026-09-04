@@ -24,6 +24,52 @@ export const ALL_MEDIA_FORMATS: MediaFormat[] = [
   'Custom Category',
 ];
 
+export type BingoSection =
+  | 'video game'
+  | 'painting'
+  | 'movie'
+  | 'tv show'
+  | 'music album'
+  | 'book'
+  | 'comic series'
+  | 'board game';
+
+export const BINGO_SECTIONS: { id: BingoSection; label: string }[] = [
+  { id: 'video game', label: 'Video Game' },
+  { id: 'painting', label: 'Painting' },
+  { id: 'movie', label: 'Movie' },
+  { id: 'tv show', label: 'TV Show' },
+  { id: 'music album', label: 'Music Album' },
+  { id: 'book', label: 'Book' },
+  { id: 'comic series', label: 'Comic Series' },
+  { id: 'board game', label: 'Board Game' },
+];
+
+export interface BingoItem {
+  id: string;
+  title: string;
+  mediaType: BingoSection;
+  imageUrl?: string;
+  bio?: string;
+  linkedItemId?: string; // id of linked MediaItem in archive
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export function mapMediaFormatToBingoSection(format?: string): BingoSection | null {
+  if (!format) return null;
+  const f = format.toLowerCase().trim();
+  if (f === 'video game' || (f.includes('game') && !f.includes('board'))) return 'video game';
+  if (f === 'painting' || f.includes('artwork') || f.includes('painting')) return 'painting';
+  if (f === 'film' || f === 'movie' || f.includes('film') || f.includes('movie')) return 'movie';
+  if (f === 'tv show' || f.includes('tv') || (f.includes('series') && !f.includes('comic'))) return 'tv show';
+  if (f === 'music album' || f.includes('music') || f.includes('album') || f.includes('soundtrack')) return 'music album';
+  if (f === 'book' || f.includes('book') || f.includes('novel')) return 'book';
+  if (f.includes('comic') || f.includes('manga')) return 'comic series';
+  if (f === 'board game' || f.includes('board game') || f.includes('tabletop')) return 'board game';
+  return null;
+}
+
 export type CreatorCategory =
   | 'Author'
   | 'Director'

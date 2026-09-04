@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useDeferredValue } from 'react';
-import { MediaItem, FilterOptions, DEFAULT_SCORING_PHILOSOPHY, RATING_SCALE_LEVELS } from './types';
+import { MediaItem, FilterOptions, DEFAULT_SCORING_PHILOSOPHY, RATING_SCALE_LEVELS, BingoItem } from './types';
 import { extractReleaseYear, getDecadeFromYear } from './utils/dateUtils';
 import { getSortableTitle } from './utils/stringUtils';
 import { buildCompositeQualityRankMap, getItemScore } from './utils/sortUtils';
@@ -19,12 +19,13 @@ import { SimilarItemsPage } from './components/SimilarItemsPage';
 import { CreatorsPage } from './components/CreatorsPage';
 import { AboutHornetPage } from './components/AboutHornetPage';
 import { DonatePage } from './components/DonatePage';
+import { BingoView } from './components/BingoView';
 import { CreatorBioModal } from './components/CreatorBioModal';
 import { GlobalTagModal } from './components/GlobalTagModal';
 import { LinkConfirmationModal } from './components/LinkConfirmationModal';
 import { TableView } from './components/TableView';
 import { parseUrlRoute, updateUrlRoute } from './utils/urlUtils';
-import { ShieldCheck, Plus, Layers, Lock, Database, User, Heart, LayoutGrid, Table, CheckCircle2 } from 'lucide-react';
+import { ShieldCheck, Plus, Layers, Lock, Database, User, Heart, LayoutGrid, Table, CheckCircle2, Link2 } from 'lucide-react';
 
 export default function App() {
   const [items, setItems] = useState<MediaItem[]>(() => storageService.getMediaItems());
@@ -51,10 +52,16 @@ export default function App() {
   const [processedCandidateIds, setProcessedCandidateIds] = useState<Set<string>>(new Set());
 
   // Active Navigation View (initialized from URL if present)
-  const [activeView, setActiveView] = useState<'archive' | 'hornets' | 'rating_scale' | 'similar' | 'creators' | 'about' | 'donate'>(() => {
+  const [activeView, setActiveView] = useState<'archive' | 'hornets' | 'rating_scale' | 'similar' | 'creators' | 'about' | 'donate' | 'bingo'>(() => {
     const route = parseUrlRoute();
     return route.view || 'archive';
   });
+
+  // Pending two-way Bingo link confirmation when saving an item in main archive
+  const [pendingBingoLinkConfirm, setPendingBingoLinkConfirm] = useState<{
+    bingoItem: BingoItem;
+    archiveItem: MediaItem;
+  } | null>(null);
 
   // Modals & Drawers State (initialized from URL if present)
   const [selectedMedia, setSelectedMedia] = useState<MediaItem | null>(() => {
@@ -628,6 +635,23 @@ export default function App() {
         setPendingLinkCandidates(candidates);
       }
 
+      // 5b. Check if an unlinked Bingo card exists with matching title ("goes both ways")
+      try {
+        const currentBingo = storageService.getBingoItems();
+        const normTitle = (itemToSave.title || '').trim().toLowerCase();
+        const matchingBingo = currentBingo.find(
+          (b) => !b.linkedItemId && b.title.trim().toLowerCase() === normTitle
+        );
+        if (matchingBingo) {
+          setPendingBingoLinkConfirm({
+            bingoItem: matchingBingo,
+            archiveItem: itemToSave,
+          });
+        }
+      } catch (e) {
+        console.warn('Bingo auto-link check notice:', e);
+      }
+
       // 6. Fast background server & GitHub save
       const result = await storageService.saveArchiveServer(workingItems, activeCode);
       if (result.success && result.items) {
@@ -642,6 +666,37 @@ export default function App() {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleConfirmBingoLinkFromArchive = async () => {
+    if (!pendingBingoLinkConfirm) return;
+    const { bingoItem, archiveItem } = pendingBingoLinkConfirm;
+    const allBingo = storageService.getBingoItems();
+    const updated = allBingo.map((b) => {
+      if (b.id === bingoItem.id) {
+        return {
+          ...b,
+          linkedItemId: archiveItem.id,
+          imageUrl: b.imageUrl || archiveItem.cover,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      return b;
+    });
+    storageService.saveAllBingoItems(updated);
+    try {
+      const activeCode = adminPasscode || storageService.getAdminPasscode();
+      await storageService.saveBingoItemsServer(updated, activeCode);
+      setSaveStatusMessage(`Linked Bingo card "${bingoItem.title}" to "${archiveItem.title}"!`);
+      setTimeout(() => setSaveStatusMessage(null), 3000);
+    } catch (err) {
+      console.warn('Bingo link save notice:', err);
+    }
+    setPendingBingoLinkConfirm(null);
+  };
+
+  const handleSkipBingoLinkFromArchive = () => {
+    setPendingBingoLinkConfirm(null);
   };
 
   const handleCompleteLinkVerification = async (confirmedCandidates: DetectedLinkCandidate[]) => {
@@ -1137,6 +1192,19 @@ export default function App() {
         {activeView === 'donate' && (
           <DonatePage onBackToArchive={() => handleViewChange('archive')} />
         )}
+
+        {/* Bingo Page View */}
+        {activeView === 'bingo' && (
+          <BingoView
+            archiveItems={items}
+            isAdmin={isAdmin}
+            adminPasscode={adminPasscode}
+            onOpenArchiveItem={(item) => {
+              handleViewChange('archive');
+              handleMediaClick(item);
+            }}
+          />
+        )}
       </main>
 
       {/* Footer */}
@@ -1320,6 +1388,46 @@ export default function App() {
           onComplete={handleCompleteLinkVerification}
           onClose={() => setPendingLinkCandidates([])}
         />
+      )}
+
+      {pendingBingoLinkConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm animate-fade-in font-mono">
+          <div
+            className="w-full max-w-md bg-slate-900 border border-purple-500/50 rounded-xl p-5 shadow-2xl text-slate-100 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 text-purple-400">
+              <Link2 size={18} />
+              <h3 className="font-bold text-sm uppercase">Link to Bingo Card</h3>
+            </div>
+
+            <div className="text-xs text-slate-300 space-y-2 leading-relaxed">
+              <p>
+                A Bingo card exists for{' '}
+                <strong className="text-purple-300">"{pendingBingoLinkConfirm.bingoItem.title}"</strong> (
+                <span className="capitalize">{pendingBingoLinkConfirm.bingoItem.mediaType}</span>).
+              </p>
+              <p className="text-slate-400">
+                Are you sure to link these? (The Bingo card will now display this picture and ratings).
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+              <button
+                onClick={handleSkipBingoLinkFromArchive}
+                className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition cursor-pointer"
+              >
+                No, Keep Unlinked
+              </button>
+              <button
+                onClick={handleConfirmBingoLinkFromArchive}
+                className="px-3 py-1.5 rounded bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition cursor-pointer"
+              >
+                Yes, Link Them
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -19,6 +19,7 @@ const URL_KEYS = new Set([
   'mediaformat',
   'format',
   'id',
+  'linkeditemid',
   'linkedarchiveid'
 ]);
 
@@ -87,14 +88,14 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { passcode, items, characters, item } = req.body || {};
+    const { passcode, items, characters, item, bingoItems } = req.body || {};
     const expectedPassword = process.env.ADMIN_PASSWORD;
 
     if (expectedPassword && (!passcode || passcode.trim() !== expectedPassword.trim())) {
       return res.status(401).json({ error: 'Unauthorized: Invalid passcode' });
     }
 
-    let currentDiskPayload = { items: [], characters: [] };
+    let currentDiskPayload = { items: [], characters: [], bingoItems: [] };
     const publicPath = path.join(process.cwd(), 'public', 'archive.json');
     const rootPath = path.join(process.cwd(), 'archive.json');
     const activePath = fs.existsSync(publicPath) ? publicPath : (fs.existsSync(rootPath) ? rootPath : null);
@@ -108,6 +109,7 @@ export default async function handler(req, res) {
         } else if (parsed && typeof parsed === 'object') {
           currentDiskPayload.items = Array.isArray(parsed.items) ? parsed.items : [];
           currentDiskPayload.characters = Array.isArray(parsed.characters) ? parsed.characters : [];
+          currentDiskPayload.bingoItems = Array.isArray(parsed.bingoItems) ? parsed.bingoItems : [];
         }
       } catch (e) {
         console.warn('Error reading archive file:', e);
@@ -116,16 +118,22 @@ export default async function handler(req, res) {
 
     let itemsArray = currentDiskPayload.items;
     let charactersArray = currentDiskPayload.characters;
+    let bingoItemsArray = currentDiskPayload.bingoItems || [];
 
     if (Array.isArray(items)) {
       itemsArray = items;
     } else if (items && typeof items === 'object') {
       if (Array.isArray(items.items)) itemsArray = items.items;
       if (Array.isArray(items.characters)) charactersArray = items.characters;
+      if (Array.isArray(items.bingoItems)) bingoItemsArray = items.bingoItems;
     }
 
     if (Array.isArray(characters)) {
       charactersArray = characters;
+    }
+
+    if (Array.isArray(bingoItems)) {
+      bingoItemsArray = bingoItems;
     }
 
     if (item && item.title) {
@@ -146,6 +154,7 @@ export default async function handler(req, res) {
     const fullArchivePayload = deepLowercase({
       items: itemsArray,
       characters: charactersArray,
+      bingoItems: bingoItemsArray,
     });
 
     const updatedContent = JSON.stringify(fullArchivePayload, null, 2);
@@ -173,7 +182,7 @@ export default async function handler(req, res) {
       // Local disk update succeeded
       return res.status(200).json({
         success: true,
-        message: `Saved database (${itemsArray.length} items) to local archive.json`,
+        message: `Saved database (${itemsArray.length} items, ${bingoItemsArray.length} bingo items) to local archive.json`,
         archive: fullArchivePayload,
       });
     }
@@ -224,7 +233,7 @@ export default async function handler(req, res) {
       const encodedContent = Buffer.from(updatedContent, 'utf-8').toString('base64');
 
       const putPayload = {
-        message: `Update archive database [${itemsArray.length} items]`,
+        message: `Update archive database [${itemsArray.length} items, ${bingoItemsArray.length} bingo items]`,
         content: encodedContent,
         branch: branch,
       };

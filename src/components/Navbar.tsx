@@ -1,12 +1,12 @@
 import React from 'react';
-import { Plus, Unlock, Database, Search, Shield, BarChart3, Layers, Compass, Shuffle, User, Users, Heart } from 'lucide-react';
+import { Plus, Unlock, Database, Search, Shield, BarChart3, Layers, Compass, Shuffle, User, Users, Heart, LayoutGrid } from 'lucide-react';
 import { MediaItem } from '../types';
 
 interface NavbarProps {
   items: MediaItem[];
   isAdmin: boolean;
-  activeView: 'archive' | 'hornets' | 'rating_scale' | 'similar' | 'creators' | 'about' | 'donate';
-  onViewChange: (view: 'archive' | 'hornets' | 'rating_scale' | 'similar' | 'creators' | 'about' | 'donate') => void;
+  activeView: 'archive' | 'hornets' | 'rating_scale' | 'similar' | 'creators' | 'about' | 'donate' | 'bingo';
+  onViewChange: (view: 'archive' | 'hornets' | 'rating_scale' | 'similar' | 'creators' | 'about' | 'donate' | 'bingo') => void;
   onOpenPasscodeModal: () => void;
   onOpenAddModal: () => void;
   onOpenAdminTools: () => void;
@@ -109,8 +109,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           </div>
 
-          {/* Row 2: Equal 6-Column Navigation Segmented Bar */}
-          <nav className="grid grid-cols-6 gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800/90 text-[11px] font-bold text-center">
+          {/* Row 2: Equal 7-Column Navigation Segmented Bar */}
+          <nav className="grid grid-cols-7 gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800/90 text-[11px] font-bold text-center">
             <button
               onClick={() => onViewChange('archive')}
               className={`py-1.5 rounded-lg transition-all flex flex-col sm:flex-row items-center justify-center gap-1 ${
@@ -157,6 +157,18 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <Shield size={13} />
               <span className="truncate text-[10px]">Scale</span>
+            </button>
+
+            <button
+              onClick={() => onViewChange('bingo')}
+              className={`py-1.5 rounded-lg transition-all flex flex-col sm:flex-row items-center justify-center gap-1 ${
+                activeView === 'bingo'
+                  ? 'bg-purple-600 text-white shadow-sm font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <LayoutGrid size={13} />
+              <span className="truncate text-[10px]">Bingo</span>
             </button>
 
             <button
@@ -275,6 +287,18 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 <Shield size={12} />
                 <span>Rating Scale</span>
+              </button>
+
+              <button
+                onClick={() => onViewChange('bingo')}
+                className={`px-2.5 py-1 rounded transition-all flex items-center gap-1.5 whitespace-nowrap font-bold ${
+                  activeView === 'bingo'
+                    ? 'bg-purple-600 text-white shadow-sm font-bold'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                }`}
+              >
+                <LayoutGrid size={12} />
+                <span>Bingo</span>
               </button>
 
               <button

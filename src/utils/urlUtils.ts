@@ -5,7 +5,7 @@
 
 export interface ParsedRouteParams {
   itemId: string | null;
-  view: 'archive' | 'hornets' | 'rating_scale' | 'similar' | 'creators' | 'about' | 'donate' | null;
+  view: 'archive' | 'hornets' | 'rating_scale' | 'similar' | 'creators' | 'about' | 'donate' | 'bingo' | null;
   creator: string | null;
   tag: string | null;
 }
@@ -23,7 +23,7 @@ export function parseUrlRoute(): ParsedRouteParams {
   const rawCreator = searchParams.get('creator') || null;
   const rawTag = searchParams.get('tag') || null;
 
-  const validViews = ['archive', 'hornets', 'rating_scale', 'similar', 'creators', 'about', 'donate'] as const;
+  const validViews = ['archive', 'hornets', 'rating_scale', 'similar', 'creators', 'about', 'donate', 'bingo'] as const;
   const view = validViews.find((v) => v === rawView) || null;
 
   return {
@@ -37,7 +37,7 @@ export function parseUrlRoute(): ParsedRouteParams {
 export function updateUrlRoute(
   updates: {
     item?: string | null;
-    view?: 'archive' | 'hornets' | 'rating_scale' | 'similar' | 'creators' | 'about' | 'donate' | null;
+    view?: 'archive' | 'hornets' | 'rating_scale' | 'similar' | 'creators' | 'about' | 'donate' | 'bingo' | null;
     creator?: string | null;
     tag?: string | null;
   },

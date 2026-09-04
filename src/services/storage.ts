@@ -1,10 +1,11 @@
-import { MediaItem } from '../types';
+import { MediaItem, BingoItem } from '../types';
 import { INITIAL_MEDIA_ITEMS } from '../data/initialData';
 import { normalizeMediaFormat } from '../utils/formatUtils';
 
 const STORAGE_KEY = 'medium_archive_items_v2';
 const PASSCODE_KEY = 'medium_archive_admin_passcode_v1';
 const DELETED_ITEMS_KEY = 'medium_archive_deleted_ids_v1';
+const BINGO_ITEMS_KEY = 'medium_archive_bingo_items_v1';
 
 const URL_KEYS = new Set([
   'cover',
@@ -24,6 +25,7 @@ const URL_KEYS = new Set([
   'mediaformat',
   'format',
   'id',
+  'linkeditemid',
   'linkedarchiveid'
 ]);
 
@@ -268,7 +270,98 @@ export const storageService = {
       this.saveAllMediaItems(finalItems);
     }
 
+    // Reconcile and load bingo items if present in archive
+    if (rawData && typeof rawData === 'object' && Array.isArray(rawData.bingoItems)) {
+      const localBingo = this.getBingoItems();
+      if (rawData.bingoItems.length > 0 || localBingo.length === 0) {
+        const idMap = new Map<string, BingoItem>();
+        for (const item of rawData.bingoItems) {
+          if (item && item.id) idMap.set(item.id, item);
+        }
+        for (const item of localBingo) {
+          if (item && item.id && !idMap.has(item.id)) {
+            idMap.set(item.id, item);
+          }
+        }
+        this.saveAllBingoItems(Array.from(idMap.values()));
+      }
+    }
+
     return { items: finalItems };
+  },
+
+  /**
+   * Get all bingo items from local storage
+   */
+  getBingoItems(): BingoItem[] {
+    try {
+      const data = localStorage.getItem(BINGO_ITEMS_KEY);
+      if (data) {
+        const parsed = JSON.parse(data);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {
+      console.warn('Error reading bingo items from localStorage:', e);
+    }
+    return [];
+  },
+
+  /**
+   * Save all bingo items to local storage
+   */
+  saveAllBingoItems(items: BingoItem[]): void {
+    try {
+      localStorage.setItem(BINGO_ITEMS_KEY, JSON.stringify(items));
+    } catch (e) {
+      console.warn('Error saving bingo items to localStorage:', e);
+    }
+  },
+
+  /**
+   * Saves bingo items to archive.json on server and commits to GitHub
+   */
+  async saveBingoItemsServer(
+    bingoItems?: BingoItem[],
+    passcode?: string
+  ): Promise<{ success: boolean; bingoItems: BingoItem[]; message?: string }> {
+    const currentBingo = bingoItems || this.getBingoItems();
+    const code = passcode || this.getAdminPasscode();
+    this.saveAllBingoItems(currentBingo);
+
+    try {
+      const res = await fetch('/api/save-archive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          passcode: code,
+          bingoItems: currentBingo,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to save bingo items to server');
+      }
+
+      let updatedBingo = currentBingo;
+      if (data.archive && Array.isArray(data.archive.bingoItems)) {
+        updatedBingo = data.archive.bingoItems;
+        this.saveAllBingoItems(updatedBingo);
+      }
+
+      return {
+        success: true,
+        bingoItems: updatedBingo,
+        message: data.message || 'Bingo items permanently updated and synced to GitHub!',
+      };
+    } catch (err: any) {
+      console.warn('saveBingoItemsServer notice:', err);
+      return {
+        success: true,
+        bingoItems: currentBingo,
+        message: err.message ? `Saved locally. (${err.message})` : 'Saved locally.',
+      };
+    }
   },
 
   async fetchMediaItems(): Promise<MediaItem[]> {
