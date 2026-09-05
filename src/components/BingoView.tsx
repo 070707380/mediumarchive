@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useDeferredValue } from 'react';
 import {
   Search,
   Plus,
@@ -42,7 +42,7 @@ interface BingoViewProps {
   onOpenPasscodeModal?: () => void;
 }
 
-const PAGE_SIZE = 500;
+const PAGE_SIZE = 120;
 const ALPHABET_CHARS = ['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')];
 
 // Section icon map
@@ -124,11 +124,16 @@ export const BingoView: React.FC<BingoViewProps> = ({
   const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
   const [recommendations, setRecommendations] = useState<RecommendationItem[]>([]);
   const [isLoadingRecs, setIsLoadingRecs] = useState(false);
+  const [isSavingBatch, setIsSavingBatch] = useState(false);
+  const [recBatchCount, setRecBatchCount] = useState<10 | 100 | 1000>(10);
+  const [recModalPage, setRecModalPage] = useState(1);
+  const [recSearchFilter, setRecSearchFilter] = useState('');
   const [recError, setRecError] = useState<string | null>(null);
   const [sessionSeenTitles, setSessionSeenTitles] = useState<string[]>([]);
   const [dismissedTitles, setDismissedTitles] = useState<string[]>(() =>
     storageService.getDismissedBingoRecommendations()
   );
+  const REC_MODAL_PAGE_SIZE = 40;
 
   // Refresh bingo items on mount
   useEffect(() => {
@@ -208,24 +213,51 @@ export const BingoView: React.FC<BingoViewProps> = ({
     return counts;
   }, [bingoItems]);
 
-  // Filter and sort items alphabetically, completely ignoring leading "The"
-  const filteredAndSortedItems = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+
+  // Pre-sort items for the active section once per [bingoItems, activeSection]
+  const sortedSectionItems = useMemo(() => {
     const sectionItems = bingoItems.filter((b) => b.mediaType === activeSection);
+    const mapped = sectionItems.map((b) => ({
+      item: b,
+      sortKey: getSortableTitle(b.title).toLowerCase(),
+      lowerTitle: b.title.toLowerCase(),
+    }));
 
-    const filtered = query
-      ? sectionItems.filter((b) => b.title.toLowerCase().includes(query))
-      : sectionItems;
-
-    // Must be sorted alphabetically completely ignoring "the"
-    return [...filtered].sort((a, b) => {
-      const sortA = getSortableTitle(a.title);
-      const sortB = getSortableTitle(b.title);
-      const cmp = sortA.localeCompare(sortB, undefined, { sensitivity: 'base' });
+    mapped.sort((a, b) => {
+      const cmp = a.sortKey.localeCompare(b.sortKey, undefined, { sensitivity: 'base' });
       if (cmp !== 0) return cmp;
-      return a.title.localeCompare(b.title, undefined, { sensitivity: 'base' });
+      return a.lowerTitle.localeCompare(b.lowerTitle, undefined, { sensitivity: 'base' });
     });
-  }, [bingoItems, activeSection, searchQuery]);
+
+    return mapped;
+  }, [bingoItems, activeSection]);
+
+  // Instantaneous filter with deferred query - avoids re-sorting or dropping frames
+  const filteredAndSortedItems = useMemo(() => {
+    const query = deferredSearchQuery.trim().toLowerCase();
+    if (!query) {
+      return sortedSectionItems.map((m) => m.item);
+    }
+    return sortedSectionItems
+      .filter((m) => m.lowerTitle.includes(query))
+      .map((m) => m.item);
+  }, [sortedSectionItems, deferredSearchQuery]);
+
+  // In-modal filtered and paginated recommendations for 10, 100, 1000 items
+  const filteredRecs = useMemo(() => {
+    const q = recSearchFilter.trim().toLowerCase();
+    if (!q) return recommendations;
+    return recommendations.filter((r) => r.title.toLowerCase().includes(q));
+  }, [recommendations, recSearchFilter]);
+
+  const totalRecPages = Math.max(1, Math.ceil(filteredRecs.length / REC_MODAL_PAGE_SIZE));
+  const safeRecPage = Math.min(recModalPage, totalRecPages);
+
+  const paginatedRecs = useMemo(() => {
+    const start = (safeRecPage - 1) * REC_MODAL_PAGE_SIZE;
+    return filteredRecs.slice(start, start + REC_MODAL_PAGE_SIZE);
+  }, [filteredRecs, safeRecPage]);
 
   // Set of all letters present in current filtered items
   const presentLetters = useMemo(() => {
@@ -349,10 +381,20 @@ export const BingoView: React.FC<BingoViewProps> = ({
     }, 3500);
   };
 
-  // Gen AI Recommendations fetcher
-  const handleFetchAiRecommendations = async (isRefresh = false) => {
+  // Gen AI Recommendations fetcher supporting 10, 100, 1000 items
+  const handleFetchAiRecommendations = async (
+    isRefresh = false,
+    countOverride?: 10 | 100 | 1000
+  ) => {
+    const countToFetch = countOverride || recBatchCount;
+    if (countOverride) {
+      setRecBatchCount(countOverride);
+    }
     setIsLoadingRecs(true);
     setRecError(null);
+    setRecModalPage(1);
+    setRecSearchFilter('');
+
     try {
       const existingTitles = bingoItems
         .filter((b) => b.mediaType === activeSection)
@@ -360,7 +402,7 @@ export const BingoView: React.FC<BingoViewProps> = ({
       const dismissed = storageService.getDismissedBingoRecommendations();
       setDismissedTitles(dismissed);
 
-      // Collect previously shown and currently displayed items to guarantee 10 different items per click
+      // Collect previously shown and currently displayed items to guarantee fresh recommendations
       const currentlyShown = recommendations.map((r) => r.title);
       const excludeTitles = Array.from(
         new Set([...sessionSeenTitles, ...currentlyShown])
@@ -374,6 +416,7 @@ export const BingoView: React.FC<BingoViewProps> = ({
           existingTitles,
           dismissedTitles: dismissed,
           excludeTitles: isRefresh ? excludeTitles : [],
+          count: countToFetch,
         }),
       });
 
@@ -400,7 +443,7 @@ export const BingoView: React.FC<BingoViewProps> = ({
             seenInBatch.add(key);
             fresh.push({ title: cleanTitle });
           }
-          if (fresh.length >= 10) break;
+          if (fresh.length >= countToFetch) break;
         }
 
         setRecommendations(fresh);
@@ -423,28 +466,78 @@ export const BingoView: React.FC<BingoViewProps> = ({
     }
   };
 
-  // Accept a recommendation and add as bingo card
+  // Accept a batch of recommendations and add as bingo cards
   // Strictly: "AI must not autofill description, creator etc. Only and only name is autofilled, nothing else."
-  const handleAcceptRecommendation = async (rec: RecommendationItem) => {
-    const title = sanitizeBingoTitleStyle(rec.title.trim());
+  const handleAcceptMultipleRecommendations = async (recsToAdd: RecommendationItem[]) => {
+    if (!recsToAdd || recsToAdd.length === 0) return;
+    setIsSavingBatch(true);
+    try {
+      const now = new Date().toISOString();
+      const existingKeySet = new Set(
+        bingoItems
+          .filter((b) => b.mediaType === activeSection)
+          .map((b) => canonicalCompareKey(b.title))
+      );
 
-    const newItem: BingoItem = {
-      id: `bingo-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      title,
-      mediaType: activeSection,
-      // Strictly no description, creator, or other fields autofilled
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+      const newItems: BingoItem[] = [];
+      const addedKeys = new Set<string>();
 
-    const nextList = [...bingoItems, newItem];
-    await persistBingoItems(nextList, `Added "${title}" to ${activeSection} cards!`);
-    setRecommendations((prev) =>
-      prev.filter((r) => canonicalCompareKey(r.title) !== canonicalCompareKey(title))
-    );
+      for (let i = 0; i < recsToAdd.length; i++) {
+        const raw = recsToAdd[i];
+        if (!raw || !raw.title) continue;
+        const title = sanitizeBingoTitleStyle(raw.title.trim());
+        const key = canonicalCompareKey(title);
+        if (key && !existingKeySet.has(key) && !addedKeys.has(key)) {
+          addedKeys.add(key);
+          newItems.push({
+            id: `bingo-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 7)}`,
+            title,
+            mediaType: activeSection,
+            // Strictly no description, creator, or other fields autofilled
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+      }
+
+      if (newItems.length === 0) {
+        // All were duplicates or already present; clean them from recommendations
+        const requestedKeys = new Set(recsToAdd.map((r) => canonicalCompareKey(r.title)));
+        setRecommendations((prev) =>
+          prev.filter((r) => !requestedKeys.has(canonicalCompareKey(r.title)))
+        );
+        setStatusMessage('Selected items are already in your bingo collection.');
+        setTimeout(() => setStatusMessage(null), 2500);
+        return;
+      }
+
+      const nextList = [...bingoItems, ...newItems];
+      const statusText =
+        newItems.length === 1
+          ? `Added "${newItems[0].title}" to ${activeSection} cards!`
+          : `Added all ${newItems.length} items to ${activeSection} cards!`;
+
+      await persistBingoItems(nextList, statusText);
+
+      // Atomically remove added items from the active recommendations list
+      setRecommendations((prev) =>
+        prev.filter((r) => !addedKeys.has(canonicalCompareKey(r.title)))
+      );
+    } catch (err: any) {
+      console.error('Error accepting batch recommendations:', err);
+      setStatusMessage(`Error adding cards: ${err?.message || 'Failed'}`);
+      setTimeout(() => setStatusMessage(null), 3000);
+    } finally {
+      setIsSavingBatch(false);
+    }
   };
 
-  // Permanently dismiss a recommendation forever
+  // Accept a single recommendation
+  const handleAcceptRecommendation = async (rec: RecommendationItem) => {
+    await handleAcceptMultipleRecommendations([rec]);
+  };
+
+  // Permanently dismiss a single recommendation forever
   const handleDismissRecommendation = (title: string) => {
     const updatedDismissed = storageService.dismissBingoRecommendation(title);
     setDismissedTitles(updatedDismissed);
@@ -453,6 +546,23 @@ export const BingoView: React.FC<BingoViewProps> = ({
       prev.filter((r) => canonicalCompareKey(r.title) !== key)
     );
     setStatusMessage(`Dismissed "${title}". Deleted forever.`);
+    setTimeout(() => setStatusMessage(null), 2500);
+  };
+
+  // Permanently dismiss multiple recommendations (e.g. current page)
+  const handleDismissMultipleRecommendations = (titles: string[]) => {
+    if (!titles.length) return;
+    let latestDismissed = dismissedTitles;
+    const keysToDismiss = new Set<string>();
+    titles.forEach((t) => {
+      keysToDismiss.add(canonicalCompareKey(t));
+      latestDismissed = storageService.dismissBingoRecommendation(t);
+    });
+    setDismissedTitles(latestDismissed);
+    setRecommendations((prev) =>
+      prev.filter((r) => !keysToDismiss.has(canonicalCompareKey(r.title)))
+    );
+    setStatusMessage(`Dismissed ${titles.length} items forever.`);
     setTimeout(() => setStatusMessage(null), 2500);
   };
 
@@ -923,8 +1033,8 @@ export const BingoView: React.FC<BingoViewProps> = ({
       {isAdmin && isAiPanelOpen && (
         <div className="mb-4 rounded-xl bg-slate-950 border border-purple-500/50 p-4 shadow-xl font-mono text-slate-200">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-800">
-            <div className="flex items-center gap-2">
-              <Sparkles className="text-purple-400" size={16} />
+            <div className="flex items-center gap-2 flex-wrap">
+              <Sparkles className="text-purple-400 shrink-0" size={16} />
               <h3 className="text-xs font-black tracking-wider text-slate-100 uppercase">
                 Gen AI Recommendations · {activeSection}
               </h3>
@@ -933,17 +1043,61 @@ export const BingoView: React.FC<BingoViewProps> = ({
               </span>
             </div>
 
-            <div className="flex items-center gap-2 self-end sm:self-auto">
+            <div className="flex items-center gap-2 self-end sm:self-auto flex-wrap">
+              {/* Batch size selector: 10, 100, 1000 items */}
+              <div className="flex items-center bg-slate-900 border border-slate-700/80 rounded-lg p-0.5 text-[10px]">
+                <button
+                  type="button"
+                  onClick={() => handleFetchAiRecommendations(true, 10)}
+                  disabled={isLoadingRecs}
+                  className={`px-2 py-1 rounded font-bold transition cursor-pointer ${
+                    recBatchCount === 10
+                      ? 'bg-purple-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Recommend 10 items"
+                >
+                  10
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleFetchAiRecommendations(true, 100)}
+                  disabled={isLoadingRecs}
+                  className={`px-2 py-1 rounded font-bold transition cursor-pointer ${
+                    recBatchCount === 100
+                      ? 'bg-purple-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Recommend 100 items"
+                >
+                  100
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleFetchAiRecommendations(true, 1000)}
+                  disabled={isLoadingRecs}
+                  className={`px-2 py-1 rounded font-bold transition cursor-pointer ${
+                    recBatchCount === 1000
+                      ? 'bg-purple-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Recommend 1000 items across all spectrum segments"
+                >
+                  1,000
+                </button>
+              </div>
+
               <button
                 type="button"
                 onClick={() => handleFetchAiRecommendations(true)}
                 disabled={isLoadingRecs}
                 className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs flex items-center gap-1.5 transition disabled:opacity-50 cursor-pointer font-bold shadow-sm"
-                title="Refresh: Generates 10 fresh, different recommendations across the infinite spectrum"
+                title={`Refresh: Generates ${recBatchCount} fresh recommendations across the infinite spectrum`}
               >
                 <RefreshCw size={12} className={isLoadingRecs ? 'animate-spin' : ''} />
-                <span>{isLoadingRecs ? 'Scanning...' : 'Refresh (10 Items)'}</span>
+                <span>{isLoadingRecs ? 'Scanning...' : `Refresh (${recBatchCount})`}</span>
               </button>
+
               <button
                 type="button"
                 onClick={() => setIsAiPanelOpen(false)}
@@ -956,14 +1110,30 @@ export const BingoView: React.FC<BingoViewProps> = ({
           </div>
 
           <p className="text-[11px] text-slate-400 mt-2 mb-3 leading-relaxed">
-            AI scans existing {sectionCounts[activeSection]} {activeSection} cards and recommends 10 items across the infinite spectrum (cult, obscure, indie, retro, oddities, classics). Adheres strictly to your writing style (no colons, no Roman numbers). Only the title is autofilled.
+            AI scans existing {sectionCounts[activeSection]} {activeSection} cards and recommends items across the infinite spectrum (cult, obscure, indie, retro, oddities, classics). Adheres strictly to your writing style (no colons, no Roman numbers). Only the title is autofilled.
           </p>
+
+          {isSavingBatch && (
+            <div className="py-2 px-3 rounded-lg bg-purple-950/70 border border-purple-500/40 text-purple-300 text-xs flex items-center gap-2 mb-3">
+              <RefreshCw size={13} className="animate-spin text-purple-400" />
+              <span className="font-bold">Adding cards to your bingo collection...</span>
+            </div>
+          )}
 
           {isLoadingRecs && (
             <div className="py-8 flex flex-col items-center justify-center gap-2 text-center text-slate-400">
-              <Sparkles size={22} className="text-purple-400 animate-pulse" />
-              <p className="text-xs font-bold text-purple-300">Scanning existing {activeSection} cards & exclusions...</p>
-              <p className="text-[11px] text-slate-500">Curating 10 fresh recommendations across the infinite spectrum...</p>
+              <Sparkles size={24} className="text-purple-400 animate-pulse" />
+              <p className="text-xs font-bold text-purple-300">
+                Scanning existing {activeSection} cards across the infinite spectrum...
+              </p>
+              <p className="text-[11px] text-slate-400">
+                Curating {recBatchCount} items without colons or Roman numerals (obscure, cult, indie, retro, oddities, classics)...
+              </p>
+              {recBatchCount === 1000 && (
+                <p className="text-[10px] text-purple-400/90 mt-1 max-w-sm">
+                  Gathering 1,000 items across 4 specialized spectrum quadrants.
+                </p>
+              )}
             </div>
           )}
 
@@ -981,23 +1151,95 @@ export const BingoView: React.FC<BingoViewProps> = ({
           )}
 
           {!isLoadingRecs && !recError && recommendations.length === 0 && (
-            <div className="py-6 text-center text-slate-400">
-              <p className="text-xs">No active recommendations for {activeSection}.</p>
-              <button
-                type="button"
-                onClick={() => handleFetchAiRecommendations(false)}
-                className="mt-2.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition cursor-pointer inline-flex items-center gap-1.5 shadow-sm"
-              >
-                <Sparkles size={13} />
-                <span>Recommend 10 Items</span>
-              </button>
+            <div className="py-6 text-center text-slate-400 flex flex-col items-center gap-3">
+              <p className="text-xs">No active recommendations loaded for {activeSection}.</p>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleFetchAiRecommendations(false, 10)}
+                  className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition cursor-pointer inline-flex items-center gap-1.5 shadow-sm"
+                >
+                  <Sparkles size={13} />
+                  <span>Recommend 10 Items</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleFetchAiRecommendations(false, 100)}
+                  className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-purple-950/80 border border-purple-500/60 text-purple-300 hover:text-white text-xs font-bold transition cursor-pointer inline-flex items-center gap-1.5 shadow-sm"
+                >
+                  <Sparkles size={13} />
+                  <span>Recommend 100 Items</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleFetchAiRecommendations(false, 1000)}
+                  className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-purple-950/80 border border-purple-500/60 text-purple-300 hover:text-white text-xs font-bold transition cursor-pointer inline-flex items-center gap-1.5 shadow-sm"
+                >
+                  <Sparkles size={13} />
+                  <span>Recommend 1,000 Items</span>
+                </button>
+              </div>
             </div>
           )}
 
           {!isLoadingRecs && recommendations.length > 0 && (
             <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-2 max-h-[440px] overflow-y-auto pr-1 scrollbar-thin">
-                {recommendations.map((rec) => (
+              {/* In-modal filter & pagination header */}
+              <div className="mb-2.5 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 text-xs">
+                <div className="relative flex-1 max-w-sm">
+                  <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                  <input
+                    type="text"
+                    value={recSearchFilter}
+                    onChange={(e) => {
+                      setRecSearchFilter(e.target.value);
+                      setRecModalPage(1);
+                    }}
+                    placeholder={`Filter ${recommendations.length} recommendations...`}
+                    className="w-full pl-7 pr-3 py-1 rounded-lg bg-slate-900 border border-slate-700/80 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                  />
+                  {recSearchFilter && (
+                    <button
+                      type="button"
+                      onClick={() => setRecSearchFilter('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                    >
+                      <X size={11} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Sub-pagination for 100 / 1000 items */}
+                {totalRecPages > 1 && (
+                  <div className="flex items-center gap-1.5 text-[11px] text-slate-400 shrink-0 self-end sm:self-auto">
+                    <span>
+                      Page {safeRecPage} of {totalRecPages} ({filteredRecs.length} items)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setRecModalPage((p) => Math.max(1, p - 1))}
+                      disabled={safeRecPage === 1}
+                      className="p-1 rounded bg-slate-900 border border-slate-700 hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-slate-900 cursor-pointer"
+                      title="Previous page"
+                    >
+                      <ChevronLeft size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRecModalPage((p) => Math.min(totalRecPages, p + 1))}
+                      disabled={safeRecPage === totalRecPages}
+                      className="p-1 rounded bg-slate-900 border border-slate-700 hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-slate-900 cursor-pointer"
+                      title="Next page"
+                    >
+                      <ChevronRight size={13} />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Paginated Cards Grid (smooth 40 cards per page) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-2 max-h-[460px] overflow-y-auto pr-1 scrollbar-thin">
+                {paginatedRecs.map((rec) => (
                   <div
                     key={rec.title}
                     className="rounded-lg bg-slate-900/90 border border-slate-800 hover:border-purple-500/50 p-2.5 flex items-center justify-between gap-3 transition"
@@ -1022,7 +1264,8 @@ export const BingoView: React.FC<BingoViewProps> = ({
                       <button
                         type="button"
                         onClick={() => handleAcceptRecommendation(rec)}
-                        className="px-2.5 py-1 rounded bg-purple-600 hover:bg-purple-500 text-white text-[10px] font-bold transition flex items-center gap-1 cursor-pointer shadow-sm"
+                        disabled={isSavingBatch}
+                        className="px-2.5 py-1 rounded bg-purple-600 hover:bg-purple-500 text-white text-[10px] font-bold transition flex items-center gap-1 cursor-pointer shadow-sm disabled:opacity-50"
                         title="Add title only to bingo cards"
                       >
                         <Plus size={11} />
@@ -1033,30 +1276,49 @@ export const BingoView: React.FC<BingoViewProps> = ({
                 ))}
               </div>
 
-              <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+              {/* Bottom Action & Bulk Bar */}
+              <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2.5 text-[11px] text-slate-400">
                 <span>
                   {recommendations.length} recommendations ready · {dismissedTitles.length} dismissed forever
                 </span>
-                <div className="flex items-center gap-3">
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Dismiss current page option when viewing large batches */}
+                  {paginatedRecs.length > 1 && totalRecPages > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => handleDismissMultipleRecommendations(paginatedRecs.map((r) => r.title))}
+                      disabled={isSavingBatch}
+                      className="text-slate-400 hover:text-rose-300 bg-slate-900 hover:bg-rose-950/40 border border-slate-700/80 hover:border-rose-500/40 px-2 py-1 rounded text-[10px] font-bold cursor-pointer transition"
+                      title="Dismiss only the recommendations on this page"
+                    >
+                      Dismiss Page ({paginatedRecs.length})
+                    </button>
+                  )}
+
+                  {/* Add Current Page */}
+                  {paginatedRecs.length > 1 && totalRecPages > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => handleAcceptMultipleRecommendations(paginatedRecs)}
+                      disabled={isSavingBatch}
+                      className="text-purple-300 hover:text-white bg-purple-950/80 hover:bg-purple-900 border border-purple-500/40 px-2 py-1 rounded text-[10px] font-bold cursor-pointer transition shadow-sm disabled:opacity-50"
+                      title="Add all items on this page"
+                    >
+                      Add Page ({paginatedRecs.length})
+                    </button>
+                  )}
+
+                  {/* Add All Remaining: completely fixed atomic batch save */}
                   <button
                     type="button"
-                    onClick={() => handleFetchAiRecommendations(true)}
-                    disabled={isLoadingRecs}
-                    className="text-purple-400 hover:text-purple-300 text-[11px] font-bold underline cursor-pointer flex items-center gap-1"
+                    onClick={() => handleAcceptMultipleRecommendations(recommendations)}
+                    disabled={isSavingBatch || recommendations.length === 0}
+                    className="text-white bg-purple-600 hover:bg-purple-500 border border-purple-400/50 px-3 py-1 rounded text-xs font-bold cursor-pointer transition shadow flex items-center gap-1 disabled:opacity-50"
+                    title={`Add all ${recommendations.length} recommendations directly to bingo cards`}
                   >
-                    <RefreshCw size={11} />
-                    <span>Refresh (10 Different Items)</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      for (const rec of [...recommendations]) {
-                        await handleAcceptRecommendation(rec);
-                      }
-                    }}
-                    className="text-slate-200 hover:text-white bg-purple-900/60 hover:bg-purple-800/80 border border-purple-500/40 px-2 py-0.5 rounded text-[11px] font-bold cursor-pointer"
-                  >
-                    Add All Remaining ({recommendations.length})
+                    <Plus size={12} />
+                    <span>Add All Remaining ({recommendations.length})</span>
                   </button>
                 </div>
               </div>
@@ -1192,6 +1454,7 @@ export const BingoView: React.FC<BingoViewProps> = ({
                       src={displayImage}
                       alt={item.title}
                       loading="lazy"
+                      decoding="async"
                       className="w-full h-full object-cover rounded-lg"
                       onError={(e) => {
                         // fallback to icon if image fails
