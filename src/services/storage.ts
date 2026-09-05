@@ -6,6 +6,7 @@ const STORAGE_KEY = 'medium_archive_items_v2';
 const PASSCODE_KEY = 'medium_archive_admin_passcode_v1';
 const DELETED_ITEMS_KEY = 'medium_archive_deleted_ids_v1';
 const BINGO_ITEMS_KEY = 'medium_archive_bingo_items_v1';
+const BINGO_DISMISSED_KEY = 'medium_archive_bingo_dismissed_v1';
 
 const URL_KEYS = new Set([
   'cover',
@@ -314,6 +315,42 @@ export const storageService = {
       localStorage.setItem(BINGO_ITEMS_KEY, JSON.stringify(items));
     } catch (e) {
       console.warn('Error saving bingo items to localStorage:', e);
+    }
+  },
+
+  /**
+   * Get all permanently dismissed bingo recommendation titles
+   */
+  getDismissedBingoRecommendations(): string[] {
+    try {
+      const data = localStorage.getItem(BINGO_DISMISSED_KEY);
+      if (data) {
+        const parsed = JSON.parse(data);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {
+      console.warn('Error reading dismissed bingo recommendations:', e);
+    }
+    return [];
+  },
+
+  /**
+   * Permanently dismiss a recommended title so it is deleted forever
+   */
+  dismissBingoRecommendation(title: string): string[] {
+    if (!title) return this.getDismissedBingoRecommendations();
+    try {
+      const current = this.getDismissedBingoRecommendations();
+      const norm = title.trim().toLowerCase();
+      if (!current.some((t) => t.toLowerCase() === norm)) {
+        const updated = [...current, title.trim()];
+        localStorage.setItem(BINGO_DISMISSED_KEY, JSON.stringify(updated));
+        return updated;
+      }
+      return current;
+    } catch (e) {
+      console.warn('Error saving dismissed bingo recommendation:', e);
+      return [];
     }
   },
 

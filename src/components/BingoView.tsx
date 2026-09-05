@@ -25,6 +25,9 @@ import {
   Star,
   Sparkles,
   Info,
+  Shuffle,
+  RefreshCw,
+  Dices,
   LucideIcon
 } from 'lucide-react';
 import { BingoItem, BingoSection, BINGO_SECTIONS, MediaItem, mapMediaFormatToBingoSection } from '../types';
@@ -109,6 +112,26 @@ export const BingoView: React.FC<BingoViewProps> = ({
 
   // Sync state notification
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  // Randomizer state
+  const [randomCard, setRandomCard] = useState<BingoItem | null>(null);
+  const [highlightedCardId, setHighlightedCardId] = useState<string | null>(null);
+
+  // Gen AI Recommendations state (Admin only)
+  interface RecommendationItem {
+    title: string;
+    creator?: string;
+    year?: string;
+    bio: string;
+    reason?: string;
+  }
+  const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
+  const [recommendations, setRecommendations] = useState<RecommendationItem[]>([]);
+  const [isLoadingRecs, setIsLoadingRecs] = useState(false);
+  const [recError, setRecError] = useState<string | null>(null);
+  const [dismissedTitles, setDismissedTitles] = useState<string[]>(() =>
+    storageService.getDismissedBingoRecommendations()
+  );
 
   // Refresh bingo items on mount
   useEffect(() => {
@@ -281,6 +304,142 @@ export const BingoView: React.FC<BingoViewProps> = ({
       });
     }
     return undefined;
+  };
+
+  // Search input change handler with "fourward" secret detection
+  const handleSearchInputChange = (val: string) => {
+    if (val.trim().toLowerCase() === 'fourward') {
+      setSearchQuery('');
+      if (onOpenPasscodeModal) {
+        onOpenPasscodeModal();
+      }
+      return;
+    }
+    setSearchQuery(val);
+    setCurrentPage(1);
+  };
+
+  // Randomizer handler: pick a random bingo card out of existing ones
+  const handlePickRandomCard = () => {
+    const pool = filteredAndSortedItems.length > 0
+      ? filteredAndSortedItems
+      : bingoItems.filter((b) => b.mediaType === activeSection);
+    if (pool.length === 0) return;
+    const randomIndex = Math.floor(Math.random() * pool.length);
+    setRandomCard(pool[randomIndex]);
+  };
+
+  // Jump to specific card in grid with highlight pulse
+  const handleJumpToCard = (card: BingoItem) => {
+    const idx = filteredAndSortedItems.findIndex((it) => it.id === card.id);
+    if (idx !== -1) {
+      const targetPage = Math.floor(idx / PAGE_SIZE) + 1;
+      if (safeCurrentPage !== targetPage) {
+        setCurrentPage(targetPage);
+        setJumpPageInput(String(targetPage));
+      }
+    }
+    setRandomCard(null);
+    setHighlightedCardId(card.id);
+    setTimeout(() => {
+      const el = document.getElementById(`bingo-card-${card.id}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 120);
+    setTimeout(() => {
+      setHighlightedCardId((prev) => (prev === card.id ? null : prev));
+    }, 3500);
+  };
+
+  // Gen AI Recommendations fetcher
+  const handleFetchAiRecommendations = async () => {
+    setIsLoadingRecs(true);
+    setRecError(null);
+    try {
+      const existingTitles = bingoItems
+        .filter((b) => b.mediaType === activeSection)
+        .map((b) => b.title);
+      const dismissed = storageService.getDismissedBingoRecommendations();
+      setDismissedTitles(dismissed);
+
+      const res = await fetch('/api/bingo-recommendations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category: activeSection,
+          existingTitles,
+          dismissedTitles: dismissed,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success && Array.isArray(data.recommendations)) {
+        const existingSet = new Set(existingTitles.map((t) => t.trim().toLowerCase()));
+        const dismissedSet = new Set(dismissed.map((t) => t.trim().toLowerCase()));
+        const fresh = data.recommendations.filter(
+          (r: RecommendationItem) =>
+            r &&
+            r.title &&
+            !existingSet.has(r.title.trim().toLowerCase()) &&
+            !dismissedSet.has(r.title.trim().toLowerCase())
+        );
+        setRecommendations(fresh);
+        if (fresh.length === 0) {
+          setRecError(`All discovered ${activeSection} recommendations are already in your collection or have been dismissed.`);
+        }
+      } else {
+        setRecError(data.error || 'Could not fetch recommendations.');
+      }
+    } catch (err: any) {
+      setRecError(err.message || 'Error communicating with AI recommendation scout.');
+    } finally {
+      setIsLoadingRecs(false);
+    }
+  };
+
+  // Accept a recommendation and add as bingo card
+  const handleAcceptRecommendation = async (rec: RecommendationItem) => {
+    const title = rec.title.trim();
+    const bioParts = [];
+    if (rec.creator) bioParts.push(rec.creator);
+    if (rec.year) bioParts.push(`(${rec.year})`);
+    const prefix = bioParts.join(' ');
+    const fullBio = prefix && rec.bio ? `${prefix} - ${rec.bio}` : rec.bio || undefined;
+
+    const newItem: BingoItem = {
+      id: `bingo-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      title,
+      mediaType: activeSection,
+      bio: fullBio,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const matchedArchive = findArchiveMatch(newItem.title, activeSection);
+    if (matchedArchive) {
+      newItem.linkedItemId = matchedArchive.id;
+      if (matchedArchive.cover) {
+        newItem.imageUrl = matchedArchive.cover;
+      }
+    }
+
+    const nextList = [...bingoItems, newItem];
+    await persistBingoItems(nextList, `Added "${title}" to ${activeSection} cards!`);
+    setRecommendations((prev) =>
+      prev.filter((r) => r.title.trim().toLowerCase() !== title.toLowerCase())
+    );
+  };
+
+  // Permanently dismiss a recommendation forever
+  const handleDismissRecommendation = (title: string) => {
+    const updatedDismissed = storageService.dismissBingoRecommendation(title);
+    setDismissedTitles(updatedDismissed);
+    setRecommendations((prev) =>
+      prev.filter((r) => r.title.trim().toLowerCase() !== title.trim().toLowerCase())
+    );
+    setStatusMessage(`Dismissed "${title}". Deleted forever.`);
+    setTimeout(() => setStatusMessage(null), 2500);
   };
 
   // Helper to process creating a confirmed item
@@ -576,21 +735,41 @@ export const BingoView: React.FC<BingoViewProps> = ({
 
         {/* Row 2: Search Tab & Quick Add Tab (Sticks on screen even when scrolled) */}
         <div className="flex flex-col md:flex-row items-stretch md:items-center gap-2">
-          {/* Search Tab */}
-          <div className="relative flex-1 min-w-[180px]">
+          {/* Search Tab with fourward detection */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (searchQuery.trim().toLowerCase() === 'fourward') {
+                setSearchQuery('');
+                if (onOpenPasscodeModal) {
+                  onOpenPasscodeModal();
+                }
+              }
+            }}
+            className="relative flex-1 min-w-[180px]"
+          >
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" size={13} />
             <input
               type="text"
               placeholder={`Search ${activeSection} cards...`}
               value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setCurrentPage(1);
+              onChange={(e) => handleSearchInputChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  if (searchQuery.trim().toLowerCase() === 'fourward') {
+                    e.preventDefault();
+                    setSearchQuery('');
+                    if (onOpenPasscodeModal) {
+                      onOpenPasscodeModal();
+                    }
+                  }
+                }
               }}
               className="w-full bg-slate-900/90 border border-slate-800 focus:border-purple-500 rounded-lg pl-8 pr-7 py-1.5 text-xs font-mono text-slate-200 placeholder-slate-500 focus:outline-none transition shadow-inner"
             />
             {searchQuery && (
               <button
+                type="button"
                 onClick={() => setSearchQuery('')}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 cursor-pointer"
                 title="Clear search"
@@ -598,11 +777,11 @@ export const BingoView: React.FC<BingoViewProps> = ({
                 <X size={12} />
               </button>
             )}
-          </div>
+          </form>
 
-          {/* Quick Add Tab (just as a search tab, commas create multiple entries) */}
-          <div className="relative flex-1 min-w-[220px]">
-            {isAdmin ? (
+          {/* Quick Add Tab: ONLY rendered in Admin Mode */}
+          {isAdmin && (
+            <div className="relative flex-1 min-w-[220px]">
               <form onSubmit={handleQuickAddSubmit} className="relative w-full">
                 <Plus className="absolute left-2.5 top-1/2 -translate-y-1/2 text-purple-400" size={13} />
                 <input
@@ -633,21 +812,8 @@ export const BingoView: React.FC<BingoViewProps> = ({
                   </button>
                 </div>
               </form>
-            ) : (
-              <button
-                type="button"
-                onClick={() => onOpenPasscodeModal && onOpenPasscodeModal()}
-                className="w-full bg-slate-900/80 border border-slate-800 hover:border-purple-500/50 rounded-lg pl-8 pr-3 py-1.5 text-xs font-mono text-slate-400 text-left flex items-center justify-between transition cursor-pointer"
-                title="Click to unlock Admin Mode to quick-add cards"
-              >
-                <div className="flex items-center gap-2">
-                  <Lock className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" size={13} />
-                  <span className="truncate">Quick add (Admin passcode required)...</span>
-                </div>
-                <span className="text-[10px] text-purple-400 font-bold shrink-0 underline">Unlock</span>
-              </button>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Action buttons & item count */}
           <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
@@ -655,8 +821,50 @@ export const BingoView: React.FC<BingoViewProps> = ({
               {filteredAndSortedItems.length} cards (A–Z · ignoring "The")
             </span>
 
+            {/* Randomizer Button: Available to all users */}
+            <button
+              type="button"
+              onClick={handlePickRandomCard}
+              disabled={filteredAndSortedItems.length === 0}
+              className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-amber-500/40 hover:border-amber-400 text-amber-300 font-mono text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shrink-0 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+              title="Pick a random bingo card from existing ones"
+            >
+              <Shuffle size={13} className="text-amber-400" />
+              <span className="hidden sm:inline">Random Card</span>
+              <span className="sm:hidden">Random</span>
+            </button>
+
+            {/* Gen AI Recommendations Button: Admin only */}
             {isAdmin && (
               <button
+                type="button"
+                onClick={() => {
+                  setIsAiPanelOpen((prev) => !prev);
+                  if (!isAiPanelOpen && recommendations.length === 0) {
+                    handleFetchAiRecommendations();
+                  }
+                }}
+                className={`px-2.5 py-1.5 rounded-lg border font-mono text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shrink-0 shadow-sm ${
+                  isAiPanelOpen
+                    ? 'bg-purple-600 border-purple-400 text-white'
+                    : 'bg-purple-950/50 hover:bg-purple-900/60 border-purple-500/40 text-purple-300'
+                }`}
+                title={`AI recommendations for ${activeSection} cards`}
+              >
+                <Sparkles size={13} className="text-purple-300" />
+                <span className="hidden sm:inline">AI Recommend</span>
+                <span className="sm:hidden">AI</span>
+                {recommendations.length > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-purple-500 text-white text-[9px] font-bold">
+                    {recommendations.length}
+                  </span>
+                )}
+              </button>
+            )}
+
+            {isAdmin && (
+              <button
+                type="button"
                 onClick={() => {
                   setEnterMediaType(activeSection);
                   setIsEnterModalOpen(true);
@@ -696,6 +904,158 @@ export const BingoView: React.FC<BingoViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* Gen AI Recommendations Panel (Admin Mode Only) */}
+      {isAdmin && isAiPanelOpen && (
+        <div className="mb-4 rounded-xl bg-slate-950 border border-purple-500/50 p-4 shadow-xl font-mono text-slate-200">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-800">
+            <div className="flex items-center gap-2">
+              <Sparkles className="text-purple-400" size={16} />
+              <h3 className="text-xs font-black tracking-wider text-slate-100 uppercase">
+                Gen AI Recommendations · {activeSection}
+              </h3>
+              <span className="px-2 py-0.5 rounded-full bg-purple-950 border border-purple-500/40 text-[10px] text-purple-300 font-bold">
+                Admin Scout
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 self-end sm:self-auto">
+              <button
+                type="button"
+                onClick={() => handleFetchAiRecommendations()}
+                disabled={isLoadingRecs}
+                className="px-2.5 py-1 rounded-lg bg-purple-900/40 hover:bg-purple-800/60 border border-purple-500/40 text-purple-200 text-xs flex items-center gap-1.5 transition disabled:opacity-50 cursor-pointer font-bold"
+                title="Scan existing cards and fetch fresh real-world recommendations"
+              >
+                <RefreshCw size={12} className={isLoadingRecs ? 'animate-spin' : ''} />
+                <span>{isLoadingRecs ? 'Scanning...' : 'Scan for More'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsAiPanelOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-900 transition cursor-pointer"
+                title="Close AI panel"
+              >
+                <X size={15} />
+              </button>
+            </div>
+          </div>
+
+          <p className="text-[11px] text-slate-400 mt-2 mb-3 leading-relaxed">
+            AI scans existing {sectionCounts[activeSection]} {activeSection} cards and recommends notable real-world entries tailored for this category. Click <strong className="text-purple-300">"+ Add to Bingo"</strong> to save to your cards, or <strong className="text-rose-400">"Dismiss"</strong> to permanently delete that recommendation forever.
+          </p>
+
+          {isLoadingRecs && (
+            <div className="py-8 flex flex-col items-center justify-center gap-2 text-center text-slate-400">
+              <Sparkles size={22} className="text-purple-400 animate-pulse" />
+              <p className="text-xs font-bold text-purple-300">Scanning existing {activeSection} cards...</p>
+              <p className="text-[11px] text-slate-500">Curating accurate, real-world recommendations...</p>
+            </div>
+          )}
+
+          {!isLoadingRecs && recError && (
+            <div className="p-3 rounded-lg bg-rose-950/40 border border-rose-500/40 text-rose-300 flex items-center justify-between gap-2 text-xs">
+              <span>{recError}</span>
+              <button
+                type="button"
+                onClick={() => handleFetchAiRecommendations()}
+                className="px-2.5 py-1 rounded bg-rose-900/60 hover:bg-rose-800/80 text-white text-[10px] font-bold cursor-pointer shrink-0"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {!isLoadingRecs && !recError && recommendations.length === 0 && (
+            <div className="py-6 text-center text-slate-400">
+              <p className="text-xs">No active recommendations for {activeSection}.</p>
+              <button
+                type="button"
+                onClick={() => handleFetchAiRecommendations()}
+                className="mt-2.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition cursor-pointer inline-flex items-center gap-1.5 shadow-sm"
+              >
+                <Sparkles size={13} />
+                <span>Scan Cards for Recommendations</span>
+              </button>
+            </div>
+          )}
+
+          {!isLoadingRecs && recommendations.length > 0 && (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-[420px] overflow-y-auto pr-1 scrollbar-thin">
+                {recommendations.map((rec) => (
+                  <div
+                    key={rec.title}
+                    className="rounded-lg bg-slate-900/90 border border-slate-800 hover:border-purple-500/50 p-3 flex flex-col justify-between gap-2 transition"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <h4 className="text-xs font-bold text-slate-100 leading-snug">
+                          {rec.title}
+                        </h4>
+                        {rec.year && (
+                          <span className="shrink-0 text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 font-mono">
+                            {rec.year}
+                          </span>
+                        )}
+                      </div>
+                      {rec.creator && (
+                        <p className="text-[10px] text-purple-400 mt-0.5 font-medium">
+                          {rec.creator}
+                        </p>
+                      )}
+                      {rec.bio && (
+                        <p className="text-[11px] text-slate-300 mt-1.5 line-clamp-3 leading-relaxed">
+                          {rec.bio}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-800/80 mt-1">
+                      <button
+                        type="button"
+                        onClick={() => handleDismissRecommendation(rec.title)}
+                        className="px-2 py-1 rounded bg-slate-800/80 hover:bg-rose-950/60 hover:text-rose-300 hover:border-rose-500/40 border border-slate-700 text-slate-400 text-[10px] font-bold transition flex items-center gap-1 cursor-pointer"
+                        title="Dismiss and delete forever (will never be recommended again)"
+                      >
+                        <X size={11} />
+                        <span>Dismiss</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleAcceptRecommendation(rec)}
+                        className="px-2.5 py-1 rounded bg-purple-600 hover:bg-purple-500 text-white text-[10px] font-bold transition flex items-center gap-1 cursor-pointer shadow-sm"
+                        title="Add item to current bingo section"
+                      >
+                        <Plus size={11} />
+                        <span>Add to Bingo</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+                <span>
+                  {recommendations.length} {activeSection} recommendations ready · {dismissedTitles.length} dismissed forever
+                </span>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    for (const rec of [...recommendations]) {
+                      await handleAcceptRecommendation(rec);
+                    }
+                  }}
+                  className="text-purple-400 hover:text-purple-300 text-[11px] font-bold underline cursor-pointer"
+                >
+                  Add All Remaining ({recommendations.length})
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Pagination Bar (Top) */}
       {totalPages > 1 && (
@@ -792,11 +1152,16 @@ export const BingoView: React.FC<BingoViewProps> = ({
                   </div>
                 )}
                 <div
+                  id={`bingo-card-${item.id}`}
                   onClick={() => isClickable && handleCardClick(item)}
-                  className={`flex flex-col select-none ${
+                  className={`flex flex-col select-none transition-all duration-300 ${
                     isClickable
                       ? 'cursor-pointer group'
                       : 'cursor-default opacity-85'
+                  } ${
+                    highlightedCardId === item.id
+                      ? 'ring-2 ring-amber-400 ring-offset-2 ring-offset-slate-950 scale-105 rounded-xl shadow-lg shadow-amber-500/30 z-10'
+                      : ''
                   }`}
                   title={
                     isAdmin
@@ -1383,6 +1748,142 @@ export const BingoView: React.FC<BingoViewProps> = ({
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Random Card Spotlight Modal */}
+      {randomCard && (
+        <div
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setRandomCard(null)}
+        >
+          <div
+            className="bg-[#0e1117] border border-amber-500/50 rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl font-mono text-slate-100 flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Top Bar */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-950/90">
+              <div className="flex items-center gap-2">
+                <Shuffle className="text-amber-400" size={16} />
+                <span className="text-xs font-bold text-amber-300 uppercase tracking-wide">
+                  Random Card Spotlight · {randomCard.mediaType}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handlePickRandomCard}
+                  className="px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-[11px] font-bold flex items-center gap-1 transition cursor-pointer"
+                  title="Roll again to pick another random card"
+                >
+                  <Shuffle size={12} />
+                  <span>Roll Again</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRandomCard(null)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+
+            {/* Content & 16:9 Artwork Preview */}
+            {(() => {
+              const linked = randomCard.linkedItemId ? archiveItemMap.get(randomCard.linkedItemId) : undefined;
+              const displayImage = randomCard.imageUrl || linked?.cover;
+              const Icon = SECTION_ICONS[randomCard.mediaType] || Gamepad2;
+              const bioText = randomCard.bio || linked?.hornetVerdict || linked?.summaryPlot;
+
+              return (
+                <div className="p-5 flex flex-col gap-4">
+                  <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-slate-900 border border-slate-800 shadow-inner flex items-center justify-center">
+                    {displayImage ? (
+                      <img
+                        src={displayImage}
+                        alt={randomCard.title}
+                        className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          (e.target as HTMLElement).style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center gap-2 text-slate-700">
+                        <Icon size={44} className="text-slate-600" />
+                        <span className="text-[10px] text-slate-500 uppercase">{randomCard.mediaType}</span>
+                      </div>
+                    )}
+
+                    {/* Section badge in preview */}
+                    <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
+                      <span className="px-2 py-0.5 rounded bg-slate-950/80 backdrop-blur-sm border border-slate-700 text-purple-300 text-[10px] font-bold uppercase flex items-center gap-1">
+                        <Icon size={10} />
+                        <span>{randomCard.mediaType}</span>
+                      </span>
+                      {linked && typeof linked.hornetScore === 'number' && (
+                        <span className="px-2 py-0.5 rounded bg-amber-500/90 text-slate-950 text-[10px] font-black">
+                          ★ {linked.hornetScore}/10
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="text-lg font-black text-slate-100 tracking-wide">
+                      {randomCard.title}
+                    </h3>
+                    {linked && (
+                      <p className="text-xs text-purple-400 mt-0.5">
+                        {linked.mainCreator} {linked.releaseDate ? `(${linked.releaseDate})` : ''}
+                      </p>
+                    )}
+                  </div>
+
+                  {bioText && (
+                    <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800 text-xs text-slate-300 leading-relaxed max-h-36 overflow-y-auto">
+                      {bioText}
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => handleJumpToCard(randomCard)}
+                      className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+                    >
+                      <span>Jump to Card in Grid</span>
+                    </button>
+
+                    <div className="flex items-center gap-2">
+                      {linked && onOpenArchiveItem && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRandomCard(null);
+                            onOpenArchiveItem(linked);
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-purple-500/40 text-purple-300 text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                        >
+                          <ExternalLink size={12} />
+                          <span>Archive Review</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handlePickRandomCard}
+                        className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Shuffle size={12} />
+                        <span>Roll Another</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
