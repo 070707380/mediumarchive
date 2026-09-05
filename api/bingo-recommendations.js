@@ -34,26 +34,90 @@ function convertRomanNumeralsToNumbers(text) {
   return result;
 }
 
+// Legitimate titles that officially end in "1" or "1st"
+const LEGITIMATE_TRAILING_ONE_TITLES = new Set([
+  'battlefield 1',
+  'mortal kombat 1',
+  'formula 1',
+  'f 1',
+  'f1',
+  'player 1',
+  'number 1',
+  'no 1',
+  'day 1',
+  'tier 1',
+  'zone 1',
+  'area 1',
+  '1',
+]);
+
+// Strips artificial trailing "1", "1st", or Roman "I" from titles that were unnumbered at release,
+// e.g. "Half Life 1" -> "Half Life", "Final Fantasy 1" -> "Final Fantasy", "Max Payne 1" -> "Max Payne".
+// Preserves titles where "1" is legitimately part of the name (e.g. "Battlefield 1", "Mortal Kombat 1", "Formula 1")
+// or where preceded by division keywords (e.g. "Kill Bill Vol 1", "Dune Part 1").
+function stripArtificialTrailingOne(title) {
+  if (!title) return '';
+  const trimmed = title.trim();
+  const lower = trimmed.toLowerCase();
+
+  // If the whole title is legitimate or literally just "1", preserve it
+  if (LEGITIMATE_TRAILING_ONE_TITLES.has(lower) || lower === '1') {
+    return trimmed;
+  }
+
+  // Check if title ends with " 1" or " 1st"
+  const trailingOneMatch = trimmed.match(/^(.*?)\s+(?:1|1st)$/i);
+  if (trailingOneMatch) {
+    const prefix = trailingOneMatch[1].trim();
+    // If preceded by series division keywords, preserve it (e.g. "Part 1", "Vol 1", "Chapter 1", "Episode 1")
+    if (/\b(part|vol|volume|chapter|episode|act|book|season)\b$/i.test(prefix)) {
+      return trimmed;
+    }
+    // Artificial "1" detected (e.g. "Half Life 1", "Final Fantasy 1", "Max Payne 1") -> strip it
+    return prefix;
+  }
+
+  // Check if title ends with trailing Roman numeral " I" (e.g. "Final Fantasy I", "Half Life I")
+  const trailingIMatch = trimmed.match(/^(.*?)\s+i$/i);
+  if (trailingIMatch) {
+    const prefix = trailingIMatch[1].trim();
+    if (/\b(part|vol|volume|chapter|episode|act|book|season)\b$/i.test(prefix)) {
+      return `${prefix} 1`;
+    }
+    // Pronoun exception: "The King and I", "Me and I", "You and I"
+    if (/\b(and|or|with|you|me)\b$/i.test(prefix)) {
+      return trimmed;
+    }
+    return prefix;
+  }
+
+  return trimmed;
+}
+
 // Sanitize title to the user's specific writing style:
-// - NO colons (:)
+// - NO colons (:) and NO hyphens/dashes (-, –, —, −)
 // - NO Roman numerals (standard Arabic numbers only)
+// - NO artificial "1" or "I" on debut titles (e.g. "Half Life", NOT "Half Life 1")
 // - Clean whitespace and quotes
 function sanitizeBingoTitleStyle(title) {
   if (!title) return '';
   let clean = title.trim();
-  // Strip all colons and replace with a space
-  clean = clean.replace(/:+/g, ' ');
+  // Strip all colons and hyphens/dashes and replace with a space
+  clean = clean.replace(/[:\-–—−]+/g, ' ');
   // Convert Roman numerals to Arabic numbers
   clean = convertRomanNumeralsToNumbers(clean);
   // Remove surrounding quotes
   clean = clean.replace(/^["'“‘«\s]+|["'”’»\s]+$/g, '');
   // Collapse whitespace
   clean = clean.replace(/\s+/g, ' ').trim();
+  // Strip artificial trailing 1 / I (unless legitimate like Battlefield 1)
+  clean = stripArtificialTrailingOne(clean);
   return clean;
 }
 
 // Canonical comparison key for detecting duplicates regardless of formatting:
 // Treats "Final Fantasy: VII", "Final Fantasy 7", "The Final Fantasy 7" as identical.
+// Also normalizes artificial 1s so "Half Life 1" and "Half Life" are treated as identical keys.
 function canonicalCompareKey(title) {
   if (!title) return '';
   let s = title.toLowerCase();
@@ -63,6 +127,8 @@ function canonicalCompareKey(title) {
   s = s.replace(/^(the|a|an)\s+/i, '');
   // Convert Roman numerals
   s = convertRomanNumeralsToNumbers(s);
+  // Strip artificial trailing 1 or I so "Half Life 1" matches "Half Life" as duplicate
+  s = stripArtificialTrailingOne(s);
   // Strip all punctuation and symbols (including colons, dashes, apostrophes, brackets)
   s = s.replace(/[^\w\s]/g, ' ');
   // Collapse whitespace
@@ -71,10 +137,10 @@ function canonicalCompareKey(title) {
 }
 
 // Broad fallback collection across an infinite spectrum (obscure, cult, indie, classic, weird)
-// formatted strictly without colons or Roman numerals
+// formatted strictly without colons, hyphens, or Roman numerals
 const DIVERSE_FALLBACKS = {
   'video game': [
-    'Chrono Trigger', 'Super Metroid', 'Shadow of the Colossus', 'Half-Life 2', 'Disco Elysium',
+    'Chrono Trigger', 'Super Metroid', 'Shadow of the Colossus', 'Half Life 2', 'Disco Elysium',
     'Silent Hill 2', 'Portal 2', 'Castlevania Symphony of the Night', 'BioShock', 'Dark Souls',
     'Okami', 'Deus Ex', 'Deadly Premonition', 'Grim Fandango', 'Pathologic 2',
     'Outer Wilds', 'Katamari Damacy', 'Psychonauts', 'Shenmue', 'Vampire The Masquerade Bloodlines',
@@ -84,7 +150,7 @@ const DIVERSE_FALLBACKS = {
     'Policenauts', 'Live A Live', 'Illusion of Gaia', 'Terranigma', 'Xenogears',
     'Valkyrie Profile', 'Parasite Eve', 'Dino Crisis', 'Fear Effect', 'Alundra',
     'Klonoa Door to Phantomile', 'Beyond Good and Evil', 'Killer7', 'Rule of Rose', 'Haunting Ground',
-    'Grim Fandango', 'Deus Ex', 'Half-Life 2', 'Portal 2', 'BioShock', 'Silent Hill 2', 'Castlevania Symphony of the Night',
+    'Grim Fandango', 'Deus Ex', 'Half Life 2', 'Portal 2', 'BioShock', 'Silent Hill 2', 'Castlevania Symphony of the Night',
     'Chrono Trigger', 'Super Metroid', 'Metal Gear Solid 3 Snake Eater', 'Shadow of the Colossus', 'Resident Evil 4',
     'The Legend of Zelda Majora Mask', 'Dark Souls', 'Bloodborne', 'Disco Elysium', 'Hollow Knight', 'Celeste',
     'Hotline Miami', 'Dead Cells', 'Braid', 'Spelunky 2', 'Slay the Spire', 'Return of the Obra Dinn', 'Inscryption',
@@ -106,7 +172,7 @@ const DIVERSE_FALLBACKS = {
     'Through a Glass Darkly', 'Wild Strawberries', 'Seventh Seal', 'Aguirre the Wrath of God', 'Fitzcarraldo',
     'Werckmeister Harmonies', 'Satantango', 'Paris Texas', 'Wings of Desire', 'Caché',
     'Metropolis', 'M', 'Bicycle Thieves', 'Tokyo Story', 'Rashomon', 'The 400 Blows', 'Breathless',
-    'Contempt', '8 1 2', 'La Dolce Vita', 'L Avventura', 'Blow-Up', 'The Red Shoes', 'Black Narcissus',
+    'Contempt', '8 1 2', 'La Dolce Vita', 'L Avventura', 'Blow Up', 'The Red Shoes', 'Black Narcissus',
     'Peeping Tom', 'Eyes Without a Face', 'Diabolique', 'Rififi', 'Le Samourai', 'Army of Shadows',
     'The Battle of Algiers', 'Z', 'Cinema Paradiso', 'Amelie', 'Pan Labyrinth', 'The Double Life of Veronique',
     'Three Colors Blue', 'Three Colors Red', 'Dekalog', 'Stalker', 'The Sacrifice', 'Nostalghia',
@@ -310,19 +376,44 @@ export default async function handler(req, res) {
 The user is building a Bingo collection for the medium: "${normCategory}".
 
 STRICT WRITING STYLE RULES (MANDATORY):
-1. NEVER use colons (":") in any title. If a title has a colon, omit it and separate with a single space.
-   - Example: "Star Wars Episode 4 A New Hope" (NOT "Star Wars: Episode IV")
-   - Example: "Castlevania Symphony of the Night" (NOT "Castlevania: Symphony of the Night")
-   - Example: "Half-Life 2" (NOT "Half-Life: 2")
-2. NEVER use Roman numerals (I, II, III, IV, V, VI, VII, VIII, IX, X, XI, etc.). ALWAYS use standard Arabic numbers (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, etc.).
+1. PROHIBITED CHARACTERS: Colons (":") and hyphens/dashes ("-", "–", "—") are STRICTLY PROHIBITED in all titles.
+   - Always replace colons and hyphens with a single space.
+   - Example: "Half Life" (NEVER "Half-Life")
+   - Example: "Half Life 2" (NEVER "Half-Life 2" or "Half-Life: 2")
+   - Example: "Spider Man" (NEVER "Spider-Man")
+   - Example: "Castlevania Symphony of the Night" (NEVER "Castlevania: Symphony of the Night" or "Castlevania - Symphony of the Night")
+   - Example: "Star Wars Episode 4 A New Hope" (NEVER "Star Wars: Episode IV")
+   - Example: "NieR Automata" (NEVER "NieR:Automata")
+   - Example: "X Men" (NEVER "X-Men")
+2. NEVER use Roman numerals (II, III, IV, V, VI, VII, VIII, IX, X, XI, etc.). ALWAYS use standard Arabic numbers (2, 3, 4, 5, 6, 7, 8, 9, 10, etc.).
    - Example: "Final Fantasy 7" (NOT "Final Fantasy VII")
    - Example: "Grand Theft Auto 4" (NOT "Grand Theft Auto IV")
    - Example: "Street Fighter 2 Turbo" (NOT "Street Fighter II")
    - Example: "Civilization 6" (NOT "Civilization VI")
-3. No quotes or unnecessary punctuation.
-4. Output ONLY the clean title strings. Do not include release years, descriptions, numbers, or authors.
-5. INFINITE SPECTRUM: Pick a wide, genuine spectrum across eras, genres, obscure releases, cult gems, and famous titles.
-6. NO DUPLICATES with existing cards:
+3. CRITICAL: NEVER APPEND AN ARTIFICIAL "1" OR "I" TO FIRST/DEBUT RELEASES!
+   Famous franchises almost always release their first installment without any number. NEVER add "1" to a title unless the product was genuinely and officially titled with "1" at release!
+   - Write "Half Life" (NEVER "Half Life 1" or "Half-Life 1")
+   - Write "Final Fantasy" (NEVER "Final Fantasy 1" or "Final Fantasy I")
+   - Write "Max Payne" (NEVER "Max Payne 1")
+   - Write "Silent Hill" (NEVER "Silent Hill 1")
+   - Write "Resident Evil" (NEVER "Resident Evil 1")
+   - Write "Dark Souls" (NEVER "Dark Souls 1")
+   - Write "Portal" (NEVER "Portal 1")
+   - Write "BioShock" (NEVER "BioShock 1")
+   - Write "Fallout" (NEVER "Fallout 1")
+   - Write "God of War" (NEVER "God of War 1")
+   - Write "Deus Ex" (NEVER "Deus Ex 1")
+   - Write "Diablo" (NEVER "Diablo 1")
+   - Write "System Shock" (NEVER "System Shock 1")
+   - Write "The Matrix" (NEVER "The Matrix 1")
+   - Write "The Godfather" (NEVER "The Godfather 1")
+   - Write "Alien" (NEVER "Alien 1")
+   - Write "Toy Story" (NEVER "Toy Story 1")
+   ONLY keep "1" when it is officially in the product's launch name, such as "Battlefield 1", "Mortal Kombat 1", "Formula 1", or series markers like "Kill Bill Vol 1", "Dune Part 1".
+4. No quotes or unnecessary punctuation.
+5. Output ONLY clean title strings. Do not include release years, descriptions, numbers, or authors.
+6. INFINITE SPECTRUM: Pick a wide, genuine spectrum across eras, genres, obscure releases, cult gems, and famous titles.
+7. NO DUPLICATES with existing cards:
 ${cleanedExisting.length > 0 ? `Already in collection:\n${JSON.stringify(cleanedExisting)}\n` : ''}
 ${cleanedDismissed.length > 0 ? `Dismissed titles:\n${JSON.stringify(cleanedDismissed)}\n` : ''}
 ${cleanedExcluded.length > 0 ? `Excluded this round:\n${JSON.stringify(cleanedExcluded)}\n` : ''}`;

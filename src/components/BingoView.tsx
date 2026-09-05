@@ -355,13 +355,26 @@ export const BingoView: React.FC<BingoViewProps> = ({
 
     // 2. Sortable title match (ignoring "the")
     if (sortNorm) {
-      return archiveItems.find((a) => {
+      const sortMatch = archiveItems.find((a) => {
         const aSort = getSortableTitle(a.title || '').toLowerCase();
         if (aSort !== sortNorm) return false;
         const aSection = mapMediaFormatToBingoSection(a.mediaFormat);
         return !aSection || aSection === mediaType;
       });
+      if (sortMatch) return sortMatch;
     }
+
+    // 3. Canonical key match (ignoring hyphens, colons, Roman numerals, and artificial 1s)
+    const canKey = canonicalCompareKey(title);
+    if (canKey) {
+      return archiveItems.find((a) => {
+        const aKey = canonicalCompareKey(a.title || '');
+        if (!aKey || aKey !== canKey) return false;
+        const aSection = mapMediaFormatToBingoSection(a.mediaFormat);
+        return !aSection || aSection === mediaType;
+      });
+    }
+
     return undefined;
   };
 
@@ -694,11 +707,13 @@ export const BingoView: React.FC<BingoViewProps> = ({
     const itemsCreated: BingoItem[] = [];
 
     parsedTitles.forEach((t) => {
-      const existing = isDuplicateBingoItem(t, mediaType, workingList);
+      const cleanTitle = sanitizeBingoTitleStyle(t);
+      if (!cleanTitle) return;
+      const existing = isDuplicateBingoItem(cleanTitle, mediaType, workingList);
 
       if (existing) {
         dupsToPrompt.push({
-          title: t,
+          title: cleanTitle,
           mediaType: mediaType,
           bio,
           imageUrl,
@@ -706,7 +721,7 @@ export const BingoView: React.FC<BingoViewProps> = ({
       } else {
         const { updatedList, createdItem } = commitNewItem(
           {
-            title: t,
+            title: cleanTitle,
             mediaType: mediaType,
             bio,
             imageUrl,
@@ -868,11 +883,12 @@ export const BingoView: React.FC<BingoViewProps> = ({
   // Admin save edited card
   const handleAdminSaveCard = () => {
     if (!adminEditingCard) return;
+    const sanitizedTitle = sanitizeBingoTitleStyle(editTitle.trim()) || adminEditingCard.title;
     const updated = bingoItems.map((b) => {
       if (b.id === adminEditingCard.id) {
         return {
           ...b,
-          title: editTitle.trim() || b.title,
+          title: sanitizedTitle,
           mediaType: editMediaType,
           imageUrl: editImageUrl.trim() || undefined,
           bio: editBio.trim() || undefined,
@@ -882,7 +898,7 @@ export const BingoView: React.FC<BingoViewProps> = ({
       }
       return b;
     });
-    persistBingoItems(updated, `Saved "${editTitle.trim()}"`);
+    persistBingoItems(updated, `Saved "${sanitizedTitle}"`);
     setAdminEditingCard(null);
   };
 
