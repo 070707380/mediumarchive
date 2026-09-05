@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { BingoItem, BingoSection, BINGO_SECTIONS, MediaItem, mapMediaFormatToBingoSection } from '../types';
 import { storageService } from '../services/storage';
+import { getSortableTitle, getAlphabetGroupChar } from '../utils/stringUtils';
 
 interface BingoViewProps {
   archiveItems: MediaItem[];
@@ -39,6 +40,7 @@ interface BingoViewProps {
 }
 
 const PAGE_SIZE = 500;
+const ALPHABET_CHARS = ['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')];
 
 // Section icon map
 const SECTION_ICONS: Record<BingoSection, LucideIcon> = {
@@ -186,7 +188,7 @@ export const BingoView: React.FC<BingoViewProps> = ({
     return counts;
   }, [bingoItems]);
 
-  // Filter and sort items alphabetically only
+  // Filter and sort items alphabetically, completely ignoring leading "The"
   const filteredAndSortedItems = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     const sectionItems = bingoItems.filter((b) => b.mediaType === activeSection);
@@ -195,11 +197,24 @@ export const BingoView: React.FC<BingoViewProps> = ({
       ? sectionItems.filter((b) => b.title.toLowerCase().includes(query))
       : sectionItems;
 
-    // Must be sorted alphabetically only
-    return filtered.sort((a, b) =>
-      a.title.localeCompare(b.title, undefined, { sensitivity: 'base' })
-    );
+    // Must be sorted alphabetically completely ignoring "the"
+    return [...filtered].sort((a, b) => {
+      const sortA = getSortableTitle(a.title);
+      const sortB = getSortableTitle(b.title);
+      const cmp = sortA.localeCompare(sortB, undefined, { sensitivity: 'base' });
+      if (cmp !== 0) return cmp;
+      return a.title.localeCompare(b.title, undefined, { sensitivity: 'base' });
+    });
   }, [bingoItems, activeSection, searchQuery]);
+
+  // Set of all letters present in current filtered items
+  const presentLetters = useMemo(() => {
+    const set = new Set<string>();
+    filteredAndSortedItems.forEach((it) => {
+      set.add(getAlphabetGroupChar(it.title));
+    });
+    return set;
+  }, [filteredAndSortedItems]);
 
   // Pagination calculation (500 items per page)
   const totalPages = Math.max(1, Math.ceil(filteredAndSortedItems.length / PAGE_SIZE));
@@ -217,15 +232,55 @@ export const BingoView: React.FC<BingoViewProps> = ({
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // Jump to specific alphabet section
+  const handleJumpToLetter = (char: string) => {
+    const itemIndex = filteredAndSortedItems.findIndex(
+      (it) => getAlphabetGroupChar(it.title) === char
+    );
+    if (itemIndex === -1) return;
+
+    const targetPage = Math.floor(itemIndex / PAGE_SIZE) + 1;
+    if (targetPage !== safeCurrentPage) {
+      setCurrentPage(targetPage);
+      setJumpPageInput(String(targetPage));
+      setTimeout(() => {
+        const el = document.getElementById(`bingo-letter-${char}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth' });
+        }
+      }, 100);
+    } else {
+      const el = document.getElementById(`bingo-letter-${char}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+  };
+
   // Find candidate in archive for linking
   const findArchiveMatch = (title: string, mediaType: BingoSection): MediaItem | undefined => {
     const norm = title.trim().toLowerCase();
-    return archiveItems.find((a) => {
+    const sortNorm = getSortableTitle(title).toLowerCase();
+
+    // 1. Exact match
+    const exact = archiveItems.find((a) => {
       const aTitle = (a.title || '').trim().toLowerCase();
       if (aTitle !== norm) return false;
       const aSection = mapMediaFormatToBingoSection(a.mediaFormat);
       return !aSection || aSection === mediaType;
     });
+    if (exact) return exact;
+
+    // 2. Sortable title match (ignoring "the")
+    if (sortNorm) {
+      return archiveItems.find((a) => {
+        const aSort = getSortableTitle(a.title || '').toLowerCase();
+        if (aSort !== sortNorm) return false;
+        const aSection = mapMediaFormatToBingoSection(a.mediaFormat);
+        return !aSection || aSection === mediaType;
+      });
+    }
+    return undefined;
   };
 
   // Helper to process creating a confirmed item
@@ -597,7 +652,7 @@ export const BingoView: React.FC<BingoViewProps> = ({
           {/* Action buttons & item count */}
           <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
             <span className="text-[11px] font-mono text-slate-400 whitespace-nowrap">
-              {filteredAndSortedItems.length} cards (A–Z)
+              {filteredAndSortedItems.length} cards (A–Z · ignoring "The")
             </span>
 
             {isAdmin && (
@@ -615,6 +670,31 @@ export const BingoView: React.FC<BingoViewProps> = ({
             )}
           </div>
         </div>
+
+        {/* Row 3: Alphabet Quick Jump (A-Z ignoring "The") */}
+        {filteredAndSortedItems.length > 0 && (
+          <div className="flex items-center gap-1 overflow-x-auto pb-0.5 scrollbar-thin text-[11px] font-mono border-t border-slate-800/60 pt-1.5">
+            <span className="text-slate-500 mr-1 text-[10px] uppercase font-bold shrink-0">Jump:</span>
+            {ALPHABET_CHARS.map((char) => {
+              const hasItems = presentLetters.has(char);
+              return (
+                <button
+                  key={char}
+                  onClick={() => hasItems && handleJumpToLetter(char)}
+                  disabled={!hasItems}
+                  className={`w-5 h-5 rounded flex items-center justify-center text-[10px] transition cursor-pointer shrink-0 font-bold ${
+                    hasItems
+                      ? 'text-slate-300 hover:text-white hover:bg-purple-600 bg-slate-900 border border-slate-800'
+                      : 'text-slate-700 cursor-not-allowed opacity-35'
+                  }`}
+                  title={hasItems ? `Jump to section ${char}` : `No cards in ${char}`}
+                >
+                  {char}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Pagination Bar (Top) */}
@@ -685,7 +765,10 @@ export const BingoView: React.FC<BingoViewProps> = ({
       {/* Bingo Cards Grid (PC screen aspect ratio 16:9 pictures with small name under) */}
       {paginatedItems.length > 0 ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-          {paginatedItems.map((item) => {
+          {paginatedItems.map((item, index) => {
+            const currentLetter = getAlphabetGroupChar(item.title);
+            const prevLetter = index > 0 ? getAlphabetGroupChar(paginatedItems[index - 1].title) : null;
+            const isFirstOfLetter = index === 0 || currentLetter !== prevLetter;
             const linked = item.linkedItemId ? archiveItemMap.get(item.linkedItemId) : undefined;
             const displayImage = item.imageUrl || linked?.cover;
             const hasBio = Boolean(item.bio || linked?.hornetVerdict || linked?.summaryPlot);
@@ -693,22 +776,36 @@ export const BingoView: React.FC<BingoViewProps> = ({
             const Icon = SECTION_ICONS[item.mediaType] || Gamepad2;
 
             return (
-              <div
-                key={item.id}
-                onClick={() => isClickable && handleCardClick(item)}
-                className={`flex flex-col select-none ${
-                  isClickable
-                    ? 'cursor-pointer group'
-                    : 'cursor-default opacity-85'
-                }`}
-                title={
-                  isAdmin
-                    ? `${item.title} (Admin: Click to edit or link)`
-                    : hasBio
-                    ? `${item.title} (Click to view bio)`
-                    : item.title
-                }
-              >
+              <React.Fragment key={item.id}>
+                {isFirstOfLetter && (
+                  <div
+                    id={`bingo-letter-${currentLetter}`}
+                    className="col-span-full flex items-center gap-2.5 pt-3 pb-0.5 scroll-mt-44"
+                  >
+                    <span className="w-6 h-6 rounded bg-purple-950/90 border border-purple-500/50 text-purple-300 font-mono font-bold text-xs flex items-center justify-center shadow-sm">
+                      {currentLetter}
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-400">
+                      {currentLetter === '#' ? '0–9 & Symbols' : `Letter ${currentLetter}`}
+                    </span>
+                    <div className="h-px flex-1 bg-slate-800/80" />
+                  </div>
+                )}
+                <div
+                  onClick={() => isClickable && handleCardClick(item)}
+                  className={`flex flex-col select-none ${
+                    isClickable
+                      ? 'cursor-pointer group'
+                      : 'cursor-default opacity-85'
+                  }`}
+                  title={
+                    isAdmin
+                      ? `${item.title} (Admin: Click to edit or link)`
+                      : hasBio
+                      ? `${item.title} (Click to view bio)`
+                      : item.title
+                  }
+                >
                 {/* 16:9 PC Screen Aspect Ratio Box */}
                 <div
                   className={`relative w-full aspect-video rounded-lg overflow-hidden bg-slate-900 border transition-all ${
@@ -768,8 +865,9 @@ export const BingoView: React.FC<BingoViewProps> = ({
                   {item.title}
                 </div>
               </div>
-            );
-          })}
+            </React.Fragment>
+          );
+        })}
         </div>
       ) : (
         <div className="py-16 text-center border border-dashed border-slate-800 rounded-xl bg-slate-950/50">

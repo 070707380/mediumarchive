@@ -1,7 +1,12 @@
 export function getSortableTitle(title: string): string {
   if (!title) return '';
   const str = typeof title === 'string' ? title : String(title);
-  return str.trim().replace(/^the\s+/i, '').trim();
+  const trimmed = str.trim();
+  const stripped = trimmed
+    .replace(/^["'“‘«»]\s*/, '')
+    .replace(/^the\s+/i, '')
+    .trim();
+  return stripped || trimmed;
 }
 
 export function getAlphabetGroupChar(title: string): string {
