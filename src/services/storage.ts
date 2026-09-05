@@ -355,6 +355,17 @@ export const storageService = {
   },
 
   /**
+   * Clear all dismissed bingo recommendations
+   */
+  clearDismissedBingoRecommendations(): void {
+    try {
+      localStorage.removeItem(BINGO_DISMISSED_KEY);
+    } catch (e) {
+      console.warn('Error clearing dismissed bingo recommendations:', e);
+    }
+  },
+
+  /**
    * Saves bingo items to archive.json on server and commits to GitHub
    */
   async saveBingoItemsServer(

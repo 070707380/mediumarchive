@@ -402,10 +402,11 @@ export const BingoView: React.FC<BingoViewProps> = ({
       const dismissed = storageService.getDismissedBingoRecommendations();
       setDismissedTitles(dismissed);
 
-      // Collect previously shown and currently displayed items to guarantee fresh recommendations
+      // Collect currently displayed and recent items to prevent immediate repetition
       const currentlyShown = recommendations.map((r) => r.title);
+      const recentSeen = sessionSeenTitles.slice(-20);
       const excludeTitles = Array.from(
-        new Set([...sessionSeenTitles, ...currentlyShown])
+        new Set([...recentSeen, ...currentlyShown])
       );
 
       const res = await fetch('/api/bingo-recommendations', {
@@ -429,6 +430,7 @@ export const BingoView: React.FC<BingoViewProps> = ({
         const fresh: RecommendationItem[] = [];
         const seenInBatch = new Set<string>();
 
+        // Pass 1: Strict check (not existing, not dismissed, not recently excluded)
         for (const r of data.recommendations) {
           if (!r || !r.title) continue;
           const cleanTitle = sanitizeBingoTitleStyle(r.title);
@@ -446,14 +448,34 @@ export const BingoView: React.FC<BingoViewProps> = ({
           if (fresh.length >= countToFetch) break;
         }
 
+        // Pass 2: If strict check left us with fewer items than requested, relax excludeKeySet!
+        // Never refuse recommendations solely because of sessionSeen history.
+        if (fresh.length < countToFetch) {
+          for (const r of data.recommendations) {
+            if (!r || !r.title) continue;
+            const cleanTitle = sanitizeBingoTitleStyle(r.title);
+            const key = canonicalCompareKey(cleanTitle);
+            if (
+              key &&
+              !existingKeySet.has(key) &&
+              !dismissedKeySet.has(key) &&
+              !seenInBatch.has(key)
+            ) {
+              seenInBatch.add(key);
+              fresh.push({ title: cleanTitle });
+            }
+            if (fresh.length >= countToFetch) break;
+          }
+        }
+
         setRecommendations(fresh);
         setSessionSeenTitles((prev) =>
-          Array.from(new Set([...prev, ...fresh.map((item) => item.title)]))
+          Array.from(new Set([...prev.slice(-30), ...fresh.map((item) => item.title)]))
         );
 
         if (fresh.length === 0) {
           setRecError(
-            `All discovered ${activeSection} recommendations are already in your collection or have been dismissed.`
+            `No new uncollected ${activeSection} recommendations in this immediate batch.`
           );
         }
       } else {
@@ -464,6 +486,15 @@ export const BingoView: React.FC<BingoViewProps> = ({
     } finally {
       setIsLoadingRecs(false);
     }
+  };
+
+  // Clear dismissed recommendations so user can rediscover them
+  const handleClearDismissedRecommendations = () => {
+    storageService.clearDismissedBingoRecommendations();
+    setDismissedTitles([]);
+    setStatusMessage('Dismissed recommendations cleared! You can now rediscover them.');
+    setTimeout(() => setStatusMessage(null), 3000);
+    handleFetchAiRecommendations(true);
   };
 
   // Accept a batch of recommendations and add as bingo cards
@@ -1111,6 +1142,16 @@ export const BingoView: React.FC<BingoViewProps> = ({
 
           <p className="text-[11px] text-slate-400 mt-2 mb-3 leading-relaxed">
             AI scans existing {sectionCounts[activeSection]} {activeSection} cards and recommends items across the infinite spectrum (cult, obscure, indie, retro, oddities, classics). Adheres strictly to your writing style (no colons, no Roman numbers). Only the title is autofilled.
+            {dismissedTitles.length > 0 && (
+              <button
+                type="button"
+                onClick={handleClearDismissedRecommendations}
+                className="text-[10px] text-purple-400 hover:text-purple-300 underline ml-2 cursor-pointer inline-flex items-center gap-1"
+                title="Restore dismissed recommendations so AI can recommend them again"
+              >
+                Restore {dismissedTitles.length} dismissed items
+              </button>
+            )}
           </p>
 
           {isSavingBatch && (
@@ -1138,15 +1179,26 @@ export const BingoView: React.FC<BingoViewProps> = ({
           )}
 
           {!isLoadingRecs && recError && (
-            <div className="p-3 rounded-lg bg-rose-950/40 border border-rose-500/40 text-rose-300 flex items-center justify-between gap-2 text-xs">
+            <div className="p-3 rounded-lg bg-rose-950/40 border border-rose-500/40 text-rose-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
               <span>{recError}</span>
-              <button
-                type="button"
-                onClick={() => handleFetchAiRecommendations(true)}
-                className="px-2.5 py-1 rounded bg-rose-900/60 hover:bg-rose-800/80 text-white text-[10px] font-bold cursor-pointer shrink-0"
-              >
-                Retry
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                {dismissedTitles.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleClearDismissedRecommendations}
+                    className="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-purple-500/50 text-purple-300 text-[10px] font-bold cursor-pointer"
+                  >
+                    Restore {dismissedTitles.length} Dismissed
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleFetchAiRecommendations(true)}
+                  className="px-2.5 py-1 rounded bg-purple-600 hover:bg-purple-500 text-white text-[10px] font-bold cursor-pointer"
+                >
+                  Scan Next Spectrum
+                </button>
+              </div>
             </div>
           )}
 

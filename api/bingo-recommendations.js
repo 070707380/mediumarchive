@@ -185,7 +185,12 @@ const DIVERSE_FALLBACKS = {
     'Ticket to Ride', 'Dominion', 'Splendor', 'Hive', 'Patchwork', 'Santorini', 'Jaipur',
     'Lost Ruins of Arnak', 'Great Western Trail', 'Feast for Odin', 'Viticulture', 'Everdell',
     'Nemesis', 'Mansions of Madness', 'Betrayal at House on the Hill', 'Clank', 'Cosmic Encounter',
-    'Battlestar Galactica', 'Avalon', 'Blood on the Clocktower', 'Deception Murder in Hong Kong'
+    'Battlestar Galactica', 'Avalon', 'Blood on the Clocktower', 'Deception Murder in Hong Kong',
+    'Mage Knight', 'Through the Ages A New Story of Civilization', 'Clans of Caledonia', 'Keyflower',
+    'Brass Lancashire', 'Terra Mystica', 'Gaia Project', 'Castles of Mad King Ludwig', 'Suburbia',
+    'Cosmic Frog', 'Inis', 'Kemet Blood and Sand', 'Cyclades', 'Captain Sonar', 'Just One',
+    'Warhammer Quest The Adventure Card Game', 'Sheriff of Nottingham', 'Roll for the Galaxy',
+    'Race for the Galaxy', 'Res Arcana', 'Targi', 'Kingdomino', 'Photosynthesis', 'Sushi Go Party'
   ],
   'painting': [
     'The Starry Night', 'Guernica', 'The Persistence of Memory', 'Girl with a Pearl Earring', 'The Great Wave off Kanagawa',
@@ -198,9 +203,38 @@ const DIVERSE_FALLBACKS = {
     'Hunters in the Snow', 'The Haywain', 'Ophelia', 'Flaming June', 'The Lady of Shalott',
     'Impression Sunrise', 'Water Lilies', 'Bal du moulin de la Galette', 'Luncheon of the Boating Party', 'The Thinker',
     'The Gates of Hell', 'Whistler Mother', 'Primavera', 'Mona Lisa', 'The Last Supper', 'Creation of Adam',
-    'The Swing', 'The Sleep of Reason Produces Monsters', 'Witches Sabbath', 'The Nightmare', 'The Gross Clinic'
+    'The Swing', 'The Sleep of Reason Produces Monsters', 'Witches Sabbath', 'The Nightmare', 'The Gross Clinic',
+    'Judith Slaying Holofernes', 'The Calling of Saint Matthew', 'David with the Head of Goliath', 'Bacchus',
+    'The Beheading of Saint John the Baptist', 'View of Toledo', 'The Burial of the Count of Orgaz',
+    'The Anatomy Lesson of Dr Nicolaes Tulp', 'Self Portrait with Two Circles', 'Girl at a Window',
+    'The Fighting Temeraire', 'Rain Steam and Speed', 'The Slave Ship', 'View of Delft',
+    'The Milkmaid', 'The Astronomer', 'The Lacemaker', 'Landscape with the Fall of Icarus',
+    'Children Games', 'Dulle Griet', 'The Blind Leading the Blind', 'The Harvesters',
+    'The Ghent Altarpiece', 'The Descent from the Cross', 'Portinari Altarpiece',
+    'The Third of May', 'Caprichos', 'The Colossus', 'Witches Flight', 'Asmodea'
   ]
 };
+
+// Robust helper to try gemini-3.1-flash-lite first, then fallback to gemini-3.8-flash
+async function generateContentWithModelFallback(ai, options) {
+  const models = ['gemini-3.1-flash-lite', 'gemini-3.8-flash'];
+  let lastErr = null;
+  for (const model of models) {
+    try {
+      const response = await ai.models.generateContent({
+        ...options,
+        model,
+      });
+      if (response && response.text) {
+        return response.text;
+      }
+    } catch (err) {
+      lastErr = err;
+      console.warn(`Model ${model} attempt in bingo-recommendations:`, err?.message || err);
+    }
+  }
+  throw lastErr || new Error('All model attempts failed');
+}
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -293,17 +327,25 @@ ${cleanedExisting.length > 0 ? `Already in collection:\n${JSON.stringify(cleaned
 ${cleanedDismissed.length > 0 ? `Dismissed titles:\n${JSON.stringify(cleanedDismissed)}\n` : ''}
 ${cleanedExcluded.length > 0 ? `Excluded this round:\n${JSON.stringify(cleanedExcluded)}\n` : ''}`;
 
+        const RANDOM_PERSPECTIVES = [
+          'Focus on overlooked cult oddities, underground foreign works, and underground masterworks.',
+          'Focus on influential golden-age vintage gems, niche indie creations, and forgotten critical darlings.',
+          'Focus on award-winning auteur masterworks, psychological narratives, and genre-defying rarities.',
+          'Focus on sleeper hits, sleeper classics, beloved fan favorites, and hidden gems across all decades.',
+        ];
+        const randomSeed = RANDOM_PERSPECTIVES[Math.floor(Math.random() * RANDOM_PERSPECTIVES.length)];
+
         let rawCandidateTitles = [];
 
         if (targetCount <= 10) {
-          // Fast single call for 10 items
+          // Single call requesting 35-45 items to ensure fresh candidates
           const prompt = `${baseInstructions}
+PERSPECTIVE: ${randomSeed}
 TASK:
-Recommend 18 to 22 REAL, DISTINCT works for "${normCategory}" spanning the entire spectrum from obscure oddities to popular hits.
+Recommend 35 to 45 REAL, DISTINCT works for "${normCategory}" spanning the entire spectrum from obscure oddities to classic favorites.
 Return a JSON array of title strings.`;
 
-          const response = await ai.models.generateContent({
-            model: 'gemini-3.8-flash',
+          const responseText = await generateContentWithModelFallback(ai, {
             contents: prompt,
             config: {
               responseMimeType: 'application/json',
@@ -314,9 +356,9 @@ Return a JSON array of title strings.`;
             },
           });
 
-          if (response && response.text) {
+          if (responseText) {
             try {
-              const parsed = JSON.parse(response.text);
+              const parsed = JSON.parse(responseText);
               if (Array.isArray(parsed)) {
                 rawCandidateTitles.push(...parsed);
               }
@@ -325,18 +367,18 @@ Return a JSON array of title strings.`;
             }
           }
         } else if (targetCount <= 100) {
-          // Fast single call for 100 items
+          // Single call requesting 140-160 items
           const prompt = `${baseInstructions}
+PERSPECTIVE: ${randomSeed}
 TASK:
-Recommend 120 to 140 REAL, DISTINCT works for "${normCategory}" spanning the entire spectrum:
-- Obscure & cult gems (30%)
-- Indie & niche favorites (30%)
-- Historically acclaimed classics (20%)
-- Mainstream & widely known popular hits (20%)
+Recommend 140 to 160 REAL, DISTINCT works for "${normCategory}" spanning the entire spectrum:
+- Obscure & cult gems (35%)
+- Indie & niche favorites (35%)
+- Historically acclaimed classics (15%)
+- Mainstream & widely known popular hits (15%)
 Return a JSON array of title strings.`;
 
-          const response = await ai.models.generateContent({
-            model: 'gemini-3.8-flash',
+          const responseText = await generateContentWithModelFallback(ai, {
             contents: prompt,
             config: {
               responseMimeType: 'application/json',
@@ -347,9 +389,9 @@ Return a JSON array of title strings.`;
             },
           });
 
-          if (response && response.text) {
+          if (responseText) {
             try {
-              const parsed = JSON.parse(response.text);
+              const parsed = JSON.parse(responseText);
               if (Array.isArray(parsed)) {
                 rawCandidateTitles.push(...parsed);
               }
@@ -382,21 +424,19 @@ Return a JSON array of title strings.`,
           ];
 
           const promises = quadrantPrompts.map((qPrompt) =>
-            ai.models
-              .generateContent({
-                model: 'gemini-3.8-flash',
-                contents: qPrompt,
-                config: {
-                  responseMimeType: 'application/json',
-                  responseSchema: {
-                    type: Type.ARRAY,
-                    items: { type: Type.STRING },
-                  },
+            generateContentWithModelFallback(ai, {
+              contents: qPrompt,
+              config: {
+                responseMimeType: 'application/json',
+                responseSchema: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
                 },
-              })
-              .then((res) => {
-                if (res && res.text) {
-                  const p = JSON.parse(res.text);
+              },
+            })
+              .then((text) => {
+                if (text) {
+                  const p = JSON.parse(text);
                   return Array.isArray(p) ? p : [];
                 }
                 return [];
@@ -413,7 +453,8 @@ Return a JSON array of title strings.`,
           });
         }
 
-        // Deduplicate and filter candidates
+        // Two-pass deduplication and filtering:
+        // Pass 1: Strict (must not be in existing, dismissed, or excludeKeys)
         const seenInBatch = new Set();
         const cleanRecs = [];
 
@@ -424,11 +465,33 @@ Return a JSON array of title strings.`,
           const key = canonicalCompareKey(cleanTitle);
           if (!cleanTitle || !key) continue;
 
-          if (!isExcluded(cleanTitle) && !seenInBatch.has(key)) {
+          // Never recommend what is already collected or permanently dismissed
+          if (existingKeys.has(key) || dismissedKeys.has(key)) continue;
+
+          // Pass 1 check: not recently shown in session
+          if (!excludeKeys.has(key) && !seenInBatch.has(key)) {
             seenInBatch.add(key);
             cleanRecs.push({ title: cleanTitle });
           }
           if (cleanRecs.length >= targetCount) break;
+        }
+
+        // Pass 2: If strict filtering did not yield enough items, relax excludeKeys!
+        // (Only strictly forbid existing in cards or permanently dismissed)
+        if (cleanRecs.length < targetCount) {
+          for (const raw of rawCandidateTitles) {
+            const titleStr = typeof raw === 'string' ? raw : raw?.title;
+            if (!titleStr) continue;
+            const cleanTitle = sanitizeBingoTitleStyle(titleStr);
+            const key = canonicalCompareKey(cleanTitle);
+            if (!cleanTitle || !key) continue;
+
+            if (!existingKeys.has(key) && !dismissedKeys.has(key) && !seenInBatch.has(key)) {
+              seenInBatch.add(key);
+              cleanRecs.push({ title: cleanTitle });
+            }
+            if (cleanRecs.length >= targetCount) break;
+          }
         }
 
         if (cleanRecs.length > 0) {
@@ -452,14 +515,28 @@ Return a JSON array of title strings.`,
     const seenFallback = new Set();
     const cleanFallback = [];
 
+    // Pass 1: Strict exclusion
     for (const title of shuffledPool) {
       const cleanTitle = sanitizeBingoTitleStyle(title);
       const key = canonicalCompareKey(cleanTitle);
-      if (!isExcluded(cleanTitle) && !seenFallback.has(key)) {
+      if (!existingKeys.has(key) && !dismissedKeys.has(key) && !excludeKeys.has(key) && !seenFallback.has(key)) {
         seenFallback.add(key);
         cleanFallback.push({ title: cleanTitle });
       }
       if (cleanFallback.length >= targetCount) break;
+    }
+
+    // Pass 2: Relax excludeKeys if still needed
+    if (cleanFallback.length < targetCount) {
+      for (const title of shuffledPool) {
+        const cleanTitle = sanitizeBingoTitleStyle(title);
+        const key = canonicalCompareKey(cleanTitle);
+        if (!existingKeys.has(key) && !dismissedKeys.has(key) && !seenFallback.has(key)) {
+          seenFallback.add(key);
+          cleanFallback.push({ title: cleanTitle });
+        }
+        if (cleanFallback.length >= targetCount) break;
+      }
     }
 
     return res.status(200).json({
