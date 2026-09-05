@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useDeferredValue } from 'react';
+import React, { useState, useMemo, useEffect, useDeferredValue, useRef } from 'react';
 import {
   Search,
   Plus,
@@ -57,6 +57,30 @@ const SECTION_ICONS: Record<BingoSection, LucideIcon> = {
   'board game': Dice5,
 };
 
+/**
+ * Checks whether an item title already exists in the given mediaType in Bingo.
+ * Performs both trimmed case-insensitive comparison and canonical key comparison
+ * to catch exact and punctuation-variant duplicates reliably.
+ */
+const isDuplicateBingoItem = (
+  itemTitle: string,
+  targetMediaType: BingoSection,
+  list: BingoItem[]
+): boolean => {
+  const cleanTitle = itemTitle.trim();
+  if (!cleanTitle) return false;
+  const norm = cleanTitle.toLowerCase();
+  const key = canonicalCompareKey(cleanTitle);
+
+  return list.some((b) => {
+    if (b.mediaType !== targetMediaType) return false;
+    const bClean = b.title.trim();
+    if (bClean.toLowerCase() === norm) return true;
+    const bKey = canonicalCompareKey(bClean);
+    return Boolean(key && bKey && key === bKey);
+  });
+};
+
 export const BingoView: React.FC<BingoViewProps> = ({
   archiveItems,
   isAdmin,
@@ -66,6 +90,11 @@ export const BingoView: React.FC<BingoViewProps> = ({
 }) => {
   // Bingo items state
   const [bingoItems, setBingoItems] = useState<BingoItem[]>(() => storageService.getBingoItems());
+  const bingoItemsRef = useRef<BingoItem[]>(bingoItems);
+  useEffect(() => {
+    bingoItemsRef.current = bingoItems;
+  }, [bingoItems]);
+
   const [activeSection, setActiveSection] = useState<BingoSection>('video game');
   const [searchQuery, setSearchQuery] = useState('');
   const [quickAddInput, setQuickAddInput] = useState('');
@@ -172,6 +201,7 @@ export const BingoView: React.FC<BingoViewProps> = ({
 
   // Save helper
   const persistBingoItems = async (updatedList: BingoItem[], message = 'Bingo items updated') => {
+    bingoItemsRef.current = updatedList;
     setBingoItems(updatedList);
     storageService.saveAllBingoItems(updatedList);
     if (isAdmin) {
@@ -499,61 +529,89 @@ export const BingoView: React.FC<BingoViewProps> = ({
 
   // Accept a batch of recommendations and add as bingo cards
   // Strictly: "AI must not autofill description, creator etc. Only and only name is autofilled, nothing else."
+  // Any items that already exist in Bingo are caught by the duplicate checker for user confirmation!
   const handleAcceptMultipleRecommendations = async (recsToAdd: RecommendationItem[]) => {
     if (!recsToAdd || recsToAdd.length === 0) return;
     setIsSavingBatch(true);
     try {
-      const now = new Date().toISOString();
-      const existingKeySet = new Set(
-        bingoItems
-          .filter((b) => b.mediaType === activeSection)
-          .map((b) => canonicalCompareKey(b.title))
-      );
-
-      const newItems: BingoItem[] = [];
-      const addedKeys = new Set<string>();
+      const dupsToPrompt: DuplicatePrompt[] = [];
+      let workingList = [...bingoItemsRef.current];
+      const itemsCreated: BingoItem[] = [];
 
       for (let i = 0; i < recsToAdd.length; i++) {
         const raw = recsToAdd[i];
         if (!raw || !raw.title) continue;
         const title = sanitizeBingoTitleStyle(raw.title.trim());
-        const key = canonicalCompareKey(title);
-        if (key && !existingKeySet.has(key) && !addedKeys.has(key)) {
-          addedKeys.add(key);
-          newItems.push({
-            id: `bingo-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 7)}`,
+        if (!title) continue;
+
+        const isDup = isDuplicateBingoItem(title, activeSection, workingList);
+
+        if (isDup) {
+          dupsToPrompt.push({
             title,
             mediaType: activeSection,
-            // Strictly no description, creator, or other fields autofilled
-            createdAt: now,
-            updatedAt: now,
           });
+        } else {
+          const { updatedList, createdItem } = commitNewItem(
+            {
+              title,
+              mediaType: activeSection,
+            },
+            workingList
+          );
+          workingList = updatedList;
+          itemsCreated.push(createdItem);
         }
       }
 
-      if (newItems.length === 0) {
-        // All were duplicates or already present; clean them from recommendations
-        const requestedKeys = new Set(recsToAdd.map((r) => canonicalCompareKey(r.title)));
-        setRecommendations((prev) =>
-          prev.filter((r) => !requestedKeys.has(canonicalCompareKey(r.title)))
-        );
-        setStatusMessage('Selected items are already in your bingo collection.');
-        setTimeout(() => setStatusMessage(null), 2500);
-        return;
+      // Persist non-duplicate creations immediately
+      if (itemsCreated.length > 0) {
+        const statusText =
+          itemsCreated.length === 1
+            ? `Added "${itemsCreated[0].title}" to ${activeSection} cards!`
+            : `Added ${itemsCreated.length} item${itemsCreated.length > 1 ? 's' : ''} to ${activeSection} cards!`;
+        await persistBingoItems(workingList, statusText);
       }
 
-      const nextList = [...bingoItems, ...newItems];
-      const statusText =
-        newItems.length === 1
-          ? `Added "${newItems[0].title}" to ${activeSection} cards!`
-          : `Added all ${newItems.length} items to ${activeSection} cards!`;
-
-      await persistBingoItems(nextList, statusText);
-
-      // Atomically remove added items from the active recommendations list
+      // Clean all processed recommendations from the recommendation shelf
+      const requestedKeys = new Set(recsToAdd.map((r) => canonicalCompareKey(r.title)));
       setRecommendations((prev) =>
-        prev.filter((r) => !addedKeys.has(canonicalCompareKey(r.title)))
+        prev.filter((r) => !requestedKeys.has(canonicalCompareKey(r.title)))
       );
+
+      // Check for linking prompts on newly created items
+      const linkPromptsToQueue: LinkPrompt[] = [];
+      itemsCreated.forEach((created) => {
+        const match = findArchiveMatch(created.title, created.mediaType);
+        if (match) {
+          linkPromptsToQueue.push({ bingoItem: created, archiveItem: match });
+        }
+      });
+
+      // Queue duplicate prompts for confirmation pop-up
+      if (dupsToPrompt.length > 0) {
+        if (!currentDuplicatePrompt) {
+          setCurrentDuplicatePrompt(dupsToPrompt[0]);
+          setPendingDuplicates((prev) => [...prev, ...dupsToPrompt.slice(1)]);
+        } else {
+          setPendingDuplicates((prev) => [...prev, ...dupsToPrompt]);
+        }
+      }
+
+      // Queue link prompts
+      if (linkPromptsToQueue.length > 0) {
+        if (dupsToPrompt.length === 0 && !currentDuplicatePrompt && !currentLinkPrompt) {
+          setCurrentLinkPrompt(linkPromptsToQueue[0]);
+          setPendingLinks((prev) => [...prev, ...linkPromptsToQueue.slice(1)]);
+        } else {
+          setPendingLinks((prev) => [...prev, ...linkPromptsToQueue]);
+        }
+      }
+
+      if (itemsCreated.length === 0 && dupsToPrompt.length === 0) {
+        setStatusMessage('No items to add.');
+        setTimeout(() => setStatusMessage(null), 2000);
+      }
     } catch (err: any) {
       console.error('Error accepting batch recommendations:', err);
       setStatusMessage(`Error adding cards: ${err?.message || 'Failed'}`);
@@ -632,14 +690,11 @@ export const BingoView: React.FC<BingoViewProps> = ({
 
     // Track duplicates to ask
     const dupsToPrompt: DuplicatePrompt[] = [];
-    let workingList = [...bingoItems];
+    let workingList = [...bingoItemsRef.current];
     const itemsCreated: BingoItem[] = [];
 
     parsedTitles.forEach((t) => {
-      const norm = t.toLowerCase();
-      const existing = workingList.some(
-        (b) => b.title.toLowerCase() === norm && b.mediaType === mediaType
-      );
+      const existing = isDuplicateBingoItem(t, mediaType, workingList);
 
       if (existing) {
         dupsToPrompt.push({
@@ -727,7 +782,7 @@ export const BingoView: React.FC<BingoViewProps> = ({
 
   // Handle duplicate confirmation actions
   const handleConfirmDuplicate = (duplicate: DuplicatePrompt) => {
-    let workingList = [...bingoItems];
+    let workingList = [...bingoItemsRef.current];
     const { updatedList, createdItem } = commitNewItem(duplicate, workingList);
     persistBingoItems(updatedList, `Created duplicate item "${duplicate.title}"`);
 
@@ -760,7 +815,7 @@ export const BingoView: React.FC<BingoViewProps> = ({
 
   // Handle linking confirmation actions
   const handleConfirmLink = (prompt: LinkPrompt) => {
-    const updated = bingoItems.map((b) => {
+    const updated = bingoItemsRef.current.map((b) => {
       if (b.id === prompt.bingoItem.id) {
         return {
           ...b,
