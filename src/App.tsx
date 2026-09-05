@@ -899,7 +899,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-purple-600 selection:text-white flex flex-col w-full max-w-full overflow-x-hidden">
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-purple-600 selection:text-white flex flex-col w-full max-w-full overflow-x-clip">
       {/* Admin Mode Floating Indicator Banner */}
       {isAdmin && (
         <div className="bg-purple-600 text-white py-1.5 px-3 sm:px-4 text-xs font-mono font-bold shadow-md z-50 w-full">
@@ -1203,6 +1203,7 @@ export default function App() {
               handleViewChange('archive');
               handleMediaClick(item);
             }}
+            onOpenPasscodeModal={() => setIsPasscodeModalOpen(true)}
           />
         )}
       </main>

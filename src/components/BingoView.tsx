@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import {
   Search,
   Plus,
+  Lock,
   Gamepad2,
   Palette,
   Film,
@@ -34,6 +35,7 @@ interface BingoViewProps {
   isAdmin: boolean;
   adminPasscode: string;
   onOpenArchiveItem?: (item: MediaItem) => void;
+  onOpenPasscodeModal?: () => void;
 }
 
 const PAGE_SIZE = 500;
@@ -55,11 +57,14 @@ export const BingoView: React.FC<BingoViewProps> = ({
   isAdmin,
   adminPasscode,
   onOpenArchiveItem,
+  onOpenPasscodeModal,
 }) => {
   // Bingo items state
   const [bingoItems, setBingoItems] = useState<BingoItem[]>(() => storageService.getBingoItems());
   const [activeSection, setActiveSection] = useState<BingoSection>('video game');
   const [searchQuery, setSearchQuery] = useState('');
+  const [quickAddInput, setQuickAddInput] = useState('');
+  const [navbarHeight, setNavbarHeight] = useState(57);
   const [currentPage, setCurrentPage] = useState(1);
   const [jumpPageInput, setJumpPageInput] = useState('1');
 
@@ -107,6 +112,28 @@ export const BingoView: React.FC<BingoViewProps> = ({
   useEffect(() => {
     const loaded = storageService.getBingoItems();
     setBingoItems(loaded);
+  }, []);
+
+  // Dynamically track navbar height so sticky bar sticks accurately on all viewports
+  useEffect(() => {
+    const updateNavHeight = () => {
+      const nav = document.querySelector('header');
+      if (nav) {
+        setNavbarHeight(nav.offsetHeight);
+      }
+    };
+    updateNavHeight();
+    window.addEventListener('resize', updateNavHeight);
+    let ro: ResizeObserver | null = null;
+    const nav = document.querySelector('header');
+    if (nav && typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(updateNavHeight);
+      ro.observe(nav);
+    }
+    return () => {
+      window.removeEventListener('resize', updateNavHeight);
+      ro?.disconnect();
+    };
   }, []);
 
   // When activeSection changes, keep enterMediaType synced
@@ -219,20 +246,20 @@ export const BingoView: React.FC<BingoViewProps> = ({
     return { updatedList: nextList, createdItem: newItem };
   };
 
-  // Handle Enter Item Form Submission
-  const handleEnterItemsSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!rawInputText.trim()) return;
-
-    // Parse items: split by comma, semicolon, or newline
-    const parsedTitles = rawInputText
+  // Reusable bulk item creation processor (supports commas, newlines, semicolons)
+  const processBulkAddition = (
+    rawText: string,
+    mediaType: BingoSection,
+    bio?: string,
+    imageUrl?: string
+  ) => {
+    // Commas must be used to create multiple entries at once
+    const parsedTitles = rawText
       .split(/[,;\n]+/)
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
 
     if (parsedTitles.length === 0) return;
-
-    setIsEnterModalOpen(false);
 
     // Track duplicates to ask
     const dupsToPrompt: DuplicatePrompt[] = [];
@@ -242,23 +269,23 @@ export const BingoView: React.FC<BingoViewProps> = ({
     parsedTitles.forEach((t) => {
       const norm = t.toLowerCase();
       const existing = workingList.some(
-        (b) => b.title.toLowerCase() === norm && b.mediaType === enterMediaType
+        (b) => b.title.toLowerCase() === norm && b.mediaType === mediaType
       );
 
       if (existing) {
         dupsToPrompt.push({
           title: t,
-          mediaType: enterMediaType,
-          bio: enterBio,
-          imageUrl: enterImageUrl,
+          mediaType: mediaType,
+          bio,
+          imageUrl,
         });
       } else {
         const { updatedList, createdItem } = commitNewItem(
           {
             title: t,
-            mediaType: enterMediaType,
-            bio: enterBio,
-            imageUrl: enterImageUrl,
+            mediaType: mediaType,
+            bio,
+            imageUrl,
           },
           workingList
         );
@@ -267,14 +294,17 @@ export const BingoView: React.FC<BingoViewProps> = ({
       }
     });
 
-    // Reset input fields
+    // Reset modal input fields if open
     setRawInputText('');
     setEnterBio('');
     setEnterImageUrl('');
 
     // Persist non-duplicate creations immediately
     if (itemsCreated.length > 0) {
-      persistBingoItems(workingList, `Created ${itemsCreated.length} item(s)`);
+      persistBingoItems(
+        workingList,
+        `Added ${itemsCreated.length} item${itemsCreated.length > 1 ? 's' : ''} to ${mediaType}!`
+      );
     }
 
     // Check for linking prompts on newly created items
@@ -299,6 +329,31 @@ export const BingoView: React.FC<BingoViewProps> = ({
         setPendingLinks((prev) => [...prev, ...linkPromptsToQueue]);
       }
     }
+  };
+
+  // Quick Add submit (from sticky toolbar)
+  const handleQuickAddSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!quickAddInput.trim()) return;
+
+    if (!isAdmin) {
+      if (onOpenPasscodeModal) {
+        onOpenPasscodeModal();
+      }
+      return;
+    }
+
+    const text = quickAddInput;
+    setQuickAddInput('');
+    processBulkAddition(text, activeSection);
+  };
+
+  // Handle Enter Item Form Submission (from Detailed Modal)
+  const handleEnterItemsSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rawInputText.trim()) return;
+    setIsEnterModalOpen(false);
+    processBulkAddition(rawInputText, enterMediaType, enterBio, enterImageUrl);
   };
 
   // Handle duplicate confirmation actions
@@ -425,79 +480,140 @@ export const BingoView: React.FC<BingoViewProps> = ({
         </div>
       )}
 
-      {/* Top Bar: Section Switcher Tabs */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 scrollbar-thin border-b border-slate-800">
-        {BINGO_SECTIONS.map((sec) => {
-          const Icon = SECTION_ICONS[sec.id];
-          const count = sectionCounts[sec.id] || 0;
-          const isActive = activeSection === sec.id;
-          return (
-            <button
-              key={sec.id}
-              onClick={() => setActiveSection(sec.id)}
-              className={`px-3 py-1.5 rounded-lg font-mono text-xs flex items-center gap-2 whitespace-nowrap transition cursor-pointer font-bold ${
-                isActive
-                  ? 'bg-purple-600 text-white shadow-sm'
-                  : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
-              }`}
-            >
-              <Icon size={13} />
-              <span>{sec.label}</span>
-              <span
-                className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
-                  isActive ? 'bg-purple-800 text-purple-100' : 'bg-slate-800 text-slate-400'
+      {/* Sticky Header: Sticks on the screen even when scrolled around */}
+      <div
+        style={{ top: `${navbarHeight}px` }}
+        className="sticky z-30 bg-slate-950/95 backdrop-blur-md border-b border-slate-800/90 py-2.5 -mx-3 sm:-mx-5 lg:-mx-6 px-3 sm:px-5 lg:px-6 shadow-xl space-y-2.5"
+      >
+        {/* Row 1: Section Switcher Tabs */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
+          {BINGO_SECTIONS.map((sec) => {
+            const Icon = SECTION_ICONS[sec.id];
+            const count = sectionCounts[sec.id] || 0;
+            const isActive = activeSection === sec.id;
+            return (
+              <button
+                key={sec.id}
+                onClick={() => {
+                  setActiveSection(sec.id);
+                  setCurrentPage(1);
+                  setJumpPageInput('1');
+                }}
+                className={`px-3 py-1.5 rounded-lg font-mono text-xs flex items-center gap-2 whitespace-nowrap transition cursor-pointer font-bold shrink-0 ${
+                  isActive
+                    ? 'bg-purple-600 text-white shadow-sm'
+                    : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
                 }`}
               >
-                {count}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Toolbar: Search tab & Enter Item tab */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
-        {/* Search tab */}
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" size={13} />
-          <input
-            type="text"
-            placeholder={`Search ${activeSection} cards...`}
-            value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setCurrentPage(1);
-            }}
-            className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-7 py-1.5 text-xs font-mono text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
-            >
-              <X size={12} />
-            </button>
-          )}
+                <Icon size={13} />
+                <span>{sec.label}</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
+                    isActive ? 'bg-purple-800 text-purple-100' : 'bg-slate-800 text-slate-400'
+                  }`}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
-        {/* Enter item tab (Admin only) & Pagination summary */}
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="text-[11px] font-mono text-slate-400">
-            {filteredAndSortedItems.length} items (sorted A–Z)
-          </span>
-
-          {isAdmin && (
-            <button
-              onClick={() => {
-                setEnterMediaType(activeSection);
-                setIsEnterModalOpen(true);
+        {/* Row 2: Search Tab & Quick Add Tab (Sticks on screen even when scrolled) */}
+        <div className="flex flex-col md:flex-row items-stretch md:items-center gap-2">
+          {/* Search Tab */}
+          <div className="relative flex-1 min-w-[180px]">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" size={13} />
+            <input
+              type="text"
+              placeholder={`Search ${activeSection} cards...`}
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
               }}
-              className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-mono text-xs font-bold flex items-center gap-1.5 transition shadow cursor-pointer"
-            >
-              <Plus size={13} />
-              <span>Enter Item</span>
-            </button>
-          )}
+              className="w-full bg-slate-900/90 border border-slate-800 focus:border-purple-500 rounded-lg pl-8 pr-7 py-1.5 text-xs font-mono text-slate-200 placeholder-slate-500 focus:outline-none transition shadow-inner"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 cursor-pointer"
+                title="Clear search"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+
+          {/* Quick Add Tab (just as a search tab, commas create multiple entries) */}
+          <div className="relative flex-1 min-w-[220px]">
+            {isAdmin ? (
+              <form onSubmit={handleQuickAddSubmit} className="relative w-full">
+                <Plus className="absolute left-2.5 top-1/2 -translate-y-1/2 text-purple-400" size={13} />
+                <input
+                  type="text"
+                  placeholder={`Quick add to ${activeSection} (e.g. item 1, item 2, item 3)...`}
+                  value={quickAddInput}
+                  onChange={(e) => setQuickAddInput(e.target.value)}
+                  className="w-full bg-slate-900/90 border border-purple-500/50 focus:border-purple-400 rounded-lg pl-8 pr-20 py-1.5 text-xs font-mono text-slate-100 placeholder-slate-500 focus:outline-none transition shadow-inner"
+                />
+                <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                  {quickAddInput && (
+                    <button
+                      type="button"
+                      onClick={() => setQuickAddInput('')}
+                      className="p-1 text-slate-500 hover:text-slate-300 cursor-pointer"
+                      title="Clear input"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={!quickAddInput.trim()}
+                    className="px-2 py-0.5 rounded bg-purple-600 hover:bg-purple-500 disabled:opacity-30 disabled:hover:bg-purple-600 text-white font-mono text-[10px] font-bold transition flex items-center gap-1 cursor-pointer shadow-sm"
+                    title="Add items (commas create multiple entries)"
+                  >
+                    <span>Add</span>
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onOpenPasscodeModal && onOpenPasscodeModal()}
+                className="w-full bg-slate-900/80 border border-slate-800 hover:border-purple-500/50 rounded-lg pl-8 pr-3 py-1.5 text-xs font-mono text-slate-400 text-left flex items-center justify-between transition cursor-pointer"
+                title="Click to unlock Admin Mode to quick-add cards"
+              >
+                <div className="flex items-center gap-2">
+                  <Lock className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" size={13} />
+                  <span className="truncate">Quick add (Admin passcode required)...</span>
+                </div>
+                <span className="text-[10px] text-purple-400 font-bold shrink-0 underline">Unlock</span>
+              </button>
+            )}
+          </div>
+
+          {/* Action buttons & item count */}
+          <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
+            <span className="text-[11px] font-mono text-slate-400 whitespace-nowrap">
+              {filteredAndSortedItems.length} cards (A–Z)
+            </span>
+
+            {isAdmin && (
+              <button
+                onClick={() => {
+                  setEnterMediaType(activeSection);
+                  setIsEnterModalOpen(true);
+                }}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-purple-500/40 text-purple-300 font-mono text-xs font-bold flex items-center gap-1 transition cursor-pointer shrink-0"
+                title="Open detailed multi-entry modal with bio & custom images"
+              >
+                <Plus size={12} />
+                <span className="hidden lg:inline">Detailed</span> Enter
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
