@@ -138,7 +138,7 @@ export function stripArtificialTrailingOne(title: string): string {
  * 3. NO artificial "1" or "I" on unnumbered franchise debuts (e.g. "Half Life", NOT "Half Life 1")
  * 4. Cleans whitespace and quotes
  */
-export function sanitizeBingoTitleStyle(title: string): string {
+export function sanitizeCanonicalTitleStyle(title: string): string {
   if (!title) return '';
   let clean = title.trim();
   // Strip colons and hyphens/dashes, replacing them with a space
