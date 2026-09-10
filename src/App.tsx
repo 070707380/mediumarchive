@@ -40,6 +40,20 @@ export default function App() {
 
   useEffect(() => {
     localStorage.removeItem('hornet_scoring_philosophy');
+    localStorage.removeItem('hornet_bingo_items');
+    localStorage.removeItem('medium_archive_bingo_items');
+    localStorage.removeItem('medium_archive_bingo_items_v1');
+    localStorage.removeItem('bingo_items');
+    localStorage.removeItem('bingo_cards');
+    localStorage.removeItem('hornet_bingo');
+
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      if (url.searchParams.get('view') === 'bingo') {
+        url.searchParams.delete('view');
+        window.history.replaceState({}, '', url.pathname + (url.search || ''));
+      }
+    }
   }, []);
 
   const handleUpdateScoringPhilosophy = (newPhilosophy: string) => {
