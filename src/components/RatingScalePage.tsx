@@ -40,7 +40,7 @@ export const RatingScalePage: React.FC<RatingScalePageProps> = ({
             key={level.score}
             className="bg-[#0e1117] border border-slate-800/90 hover:border-slate-700 p-3.5 sm:p-4 rounded-xl transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 group"
           >
-            <div className="flex items-start sm:items-center gap-3">
+            <div className="flex items-center gap-3">
               {/* Score Badge */}
               <div className="shrink-0 w-12 h-12 rounded-lg bg-slate-950 border border-slate-800 flex flex-col items-center justify-center shadow-inner group-hover:scale-105 transition">
                 <span className={`text-lg font-black ${level.color}`}>
@@ -49,19 +49,14 @@ export const RatingScalePage: React.FC<RatingScalePageProps> = ({
                 <span className="text-[9px] text-slate-500">/10</span>
               </div>
 
-              {/* Title & Description */}
-              <div className="space-y-0.5">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className={`text-sm font-bold ${level.color}`}>
-                    {level.label}
-                  </h3>
-                  <span className={`text-[10px] px-2 py-0.2 rounded font-bold border ${level.bgBadge}`}>
-                    Grade {level.score}/10
-                  </span>
-                </div>
-                <p className="text-xs text-slate-300 leading-normal font-sans">
-                  {level.description}
-                </p>
+              {/* Title & Grade */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className={`text-sm font-bold ${level.color}`}>
+                  {level.label}
+                </h3>
+                <span className={`text-[10px] px-2 py-0.2 rounded font-bold border ${level.bgBadge}`}>
+                  Grade {level.score}/10
+                </span>
               </div>
             </div>
 

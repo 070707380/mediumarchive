@@ -790,12 +790,6 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                 <p className="font-sans text-[10px] leading-relaxed text-slate-400/90 whitespace-pre-line">
                   {scoringPhilosophy}
                 </p>
-
-                {(item.mediaFormat === 'Music Album' || item.mediaFormat?.toLowerCase().includes('music')) && (
-                  <p className="font-sans text-[8px] leading-tight text-slate-400/70 italic pt-1 border-t border-slate-800/40">
-                    "Music is a bit different from other medium, so I just (mostly) technically explain the objective technique of the music and place them on pros or cons to show if I like or dislike the element. For me, music is the most subjective medium and you could easily enjoy a technical desicison I'd hate."
-                  </p>
-                )}
               </div>
             </div>
           </div>

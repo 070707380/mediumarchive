@@ -131,22 +131,22 @@ export interface FilterOptions {
 export interface RatingLevel {
   score: number;
   label: string;
-  description: string;
+  description?: string;
   color: string;
   bgBadge: string;
 }
 
 export const RATING_SCALE_LEVELS: RatingLevel[] = [
-  { score: 10, label: 'Hornet Essential', description: 'Peak media for Hornet. Transcendent artistic pinnacle with permanent personal resonance.', color: 'text-purple-300', bgBadge: 'bg-purple-500/20 text-purple-300 border-purple-500/50' },
-  { score: 9, label: 'Masterpiece', description: 'Flawless work. A monumental achievement with profound vision and faultless execution.', color: 'text-purple-400', bgBadge: 'bg-purple-500/20 text-purple-300 border-purple-500/50' },
-  { score: 8, label: 'Exceptional', description: 'Outstanding release that excels in core mechanics, narrative depth, or thematic resonance.', color: 'text-sky-400', bgBadge: 'bg-sky-500/20 text-sky-300 border-sky-500/50' },
-  { score: 7, label: 'Fascinating', description: 'Deeply engaging work with standout artistic qualities, unique style, or ambitious ideas.', color: 'text-blue-400', bgBadge: 'bg-blue-500/20 text-blue-300 border-blue-500/50' },
-  { score: 6, label: 'Great', description: 'Very good experience with distinct strengths, engaging rhythm, and strong craft.', color: 'text-emerald-400', bgBadge: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50' },
-  { score: 5, label: 'Good', description: 'Solid, enjoyable, and well-executed experience worthy of time and reflection.', color: 'text-green-400', bgBadge: 'bg-green-500/20 text-green-300 border-green-500/50' },
-  { score: 4, label: 'Average', description: 'Capable and decent, hits standard genre expectations without pushing boundaries.', color: 'text-yellow-400', bgBadge: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/50' },
-  { score: 3, label: 'Weak', description: 'Contains functional and well-thought elements, but weighted down by higher-scaled cons or execution drawbacks.', color: 'text-orange-400', bgBadge: 'bg-orange-950/60 text-orange-400 border-orange-800/50' },
-  { score: 2, label: 'Mediocre', description: 'Has occasional interesting ideas, but suffers from significant execution issues or narrative inconsistencies.', color: 'text-amber-600', bgBadge: 'bg-amber-950/60 text-amber-500 border-amber-800/50' },
-  { score: 1, label: 'Bad', description: 'Substantially flawed across core elements with minimal redeeming qualities.', color: 'text-rose-500', bgBadge: 'bg-rose-950/60 text-rose-400 border-rose-800/50' },
+  { score: 10, label: 'Hornet Essential', color: 'text-purple-300', bgBadge: 'bg-purple-500/20 text-purple-300 border-purple-500/50' },
+  { score: 9, label: 'Masterpiece', color: 'text-purple-400', bgBadge: 'bg-purple-500/20 text-purple-300 border-purple-500/50' },
+  { score: 8, label: 'Exceptional', color: 'text-sky-400', bgBadge: 'bg-sky-500/20 text-sky-300 border-sky-500/50' },
+  { score: 7, label: 'Fascinating', color: 'text-blue-400', bgBadge: 'bg-blue-500/20 text-blue-300 border-blue-500/50' },
+  { score: 6, label: 'Great', color: 'text-emerald-400', bgBadge: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50' },
+  { score: 5, label: 'Good', color: 'text-green-400', bgBadge: 'bg-green-500/20 text-green-300 border-green-500/50' },
+  { score: 4, label: 'Average', color: 'text-yellow-400', bgBadge: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/50' },
+  { score: 3, label: 'Weak', color: 'text-orange-400', bgBadge: 'bg-orange-950/60 text-orange-400 border-orange-800/50' },
+  { score: 2, label: 'Mediocre', color: 'text-amber-600', bgBadge: 'bg-amber-950/60 text-amber-500 border-amber-800/50' },
+  { score: 1, label: 'Bad', color: 'text-rose-500', bgBadge: 'bg-rose-950/60 text-rose-400 border-rose-800/50' },
 ];
 
 export function getScoreLabel(score: number): string {
