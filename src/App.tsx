@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useDeferredValue } from 'react';
-import { MediaItem, FilterOptions, DEFAULT_SCORING_PHILOSOPHY, RATING_SCALE_LEVELS } from './types';
+import { MediaItem, FilterOptions, DEFAULT_SCORING_PHILOSOPHY, RATING_SCALE_LEVELS, getItemReview } from './types';
 import { extractReleaseYear, getDecadeFromYear } from './utils/dateUtils';
 import { getSortableTitle } from './utils/stringUtils';
 import { buildCompositeQualityRankMap, getItemScore } from './utils/sortUtils';
@@ -46,6 +46,18 @@ export default function App() {
     localStorage.removeItem('bingo_items');
     localStorage.removeItem('bingo_cards');
     localStorage.removeItem('hornet_bingo');
+
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        Object.keys(localStorage).forEach((k) => {
+          if (k.toLowerCase().includes('bingo')) {
+            localStorage.removeItem(k);
+          }
+        });
+      }
+    } catch (e) {
+      // ignore storage access errors
+    }
 
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
@@ -287,6 +299,8 @@ export default function App() {
         item.originalLanguage || '',
         item.hornetVerdict || '',
         item.summaryPlot || '',
+        item.review || '',
+        getItemReview(item) || '',
         `${item.hornetScore}`,
         `${item.hornetScore}/10`,
         `${Math.round(item.hornetScore)}`,

@@ -8,6 +8,7 @@ import {
   BandMember,
   MediaRelationEntry,
   getScoreLevelInfo,
+  getItemReview,
   ALL_MEDIA_FORMATS
 } from '../types';
 import { formatImageUrl, fetchWikipediaImage, isWikipediaArticleUrl } from '../utils/imageUtils';
@@ -23,13 +24,17 @@ import {
   XCircle,
   Link as LinkIcon,
   Wand2,
+  Sparkles,
+  FileText,
   Save,
   Tag,
   Award,
   User,
   Flag,
   Languages,
-  Disc
+  Disc,
+  Check,
+  AlertCircle
 } from 'lucide-react';
 
 interface AdminMediaModalProps {
@@ -77,6 +82,7 @@ interface FormDataShape {
   summaryPlot: string;
   pros: string[];
   cons: string[];
+  review: string;
   hornetScore: number;
   hornetVerdict: string;
   similarMediaStr: string;
@@ -158,6 +164,7 @@ function getDefaultFormData(itemToEdit: MediaItem | null): FormDataShape {
       summaryPlot: itemToEdit.summaryPlot || '',
       pros: itemToEdit.pros && itemToEdit.pros.length > 0 ? [...itemToEdit.pros] : [''],
       cons: itemToEdit.cons && itemToEdit.cons.length > 0 ? [...itemToEdit.cons] : [''],
+      review: itemToEdit ? (itemToEdit.review || getItemReview(itemToEdit) || '') : '',
       hornetScore: itemToEdit.hornetScore ?? 9,
       hornetVerdict: itemToEdit.hornetVerdict || '',
       similarMediaStr: smTitles.join(', '),
@@ -197,6 +204,7 @@ function getDefaultFormData(itemToEdit: MediaItem | null): FormDataShape {
     summaryPlot: '',
     pros: [''],
     cons: [''],
+    review: '',
     hornetScore: 9,
     hornetVerdict: '',
     similarMediaStr: '',
@@ -1470,151 +1478,201 @@ const ReviewAndScoringSection = React.memo<{
   );
 });
 
-// 9. Pros & Cons Section (Hyperfast dynamic rows)
-const ProsAndConsSection = React.memo<{
-  initialPros: string[];
-  initialCons: string[];
+// 9. Linear In-Depth Review Section (Replaces pros/cons with full article review)
+const LinearReviewSection = React.memo<{
+  initialReview: string;
   onUpdateField: (field: string, val: any) => void;
-}>(({ initialPros, initialCons, onUpdateField }) => {
-  const [pros, setPros] = useState(initialPros);
-  const [cons, setCons] = useState(initialCons);
+}>(({ initialReview, onUpdateField }) => {
+  const [review, setReview] = useState(initialReview);
 
   useEffect(() => {
-    setPros(initialPros);
-    setCons(initialCons);
-  }, [initialPros, initialCons]);
+    setReview(initialReview);
+  }, [initialReview]);
 
-  const updatePros = (next: string[]) => {
-    setPros(next);
-    onUpdateField('pros', next);
-  };
+  const wordCount = useMemo(() => {
+    if (!review.trim()) return 0;
+    return review.trim().split(/\s+/).length;
+  }, [review]);
 
-  const updateCons = (next: string[]) => {
-    setCons(next);
-    onUpdateField('cons', next);
-  };
+  return (
+    <div className="p-4 sm:p-5 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <label className="text-xs font-mono font-bold uppercase tracking-wider text-slate-200 flex items-center gap-1.5">
+            <FileText size={15} className="text-amber-400" /> Linear In-Depth Review (Article)
+          </label>
+          <p className="text-[11px] text-slate-400 font-sans mt-0.5">
+            Write or paste your comprehensive linear review. Formatted cleanly in the entry's article layout.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 font-mono text-[11px] text-slate-400">
+          <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800">
+            {wordCount} words
+          </span>
+          <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800">
+            {review.length} chars
+          </span>
+        </div>
+      </div>
 
-  const handleAddPro = () => {
-    updatePros([...pros, '']);
-  };
+      <textarea
+        rows={12}
+        placeholder="Write your long-form linear critical review here... Discuss the core experience, artistic intent, mechanics, visuals, sound, narrative, or philosophical resonance."
+        value={review}
+        onChange={(e) => {
+          setReview(e.target.value);
+          onUpdateField('review', e.target.value);
+        }}
+        className="w-full bg-slate-900 border border-slate-700/80 hover:border-slate-600 focus:border-amber-500 rounded-xl p-3.5 text-xs sm:text-sm text-slate-100 placeholder-slate-600 focus:outline-none font-sans leading-relaxed transition shadow-inner resize-y min-h-[200px]"
+      />
+    </div>
+  );
+});
 
-  const handleAddCon = () => {
-    updateCons([...cons, '']);
+// AI Autofill Box for Create/Edit Modal
+const AIAutofillSection = React.memo<{
+  onAutofillApplied: (data: any) => void;
+  existingGenresPool?: string[];
+}>(({ onAutofillApplied, existingGenresPool }) => {
+  const [isOpen, setIsOpen] = useState(true);
+  const [rawText, setRawText] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const handleAutofill = async () => {
+    if (!rawText.trim()) {
+      setStatusMessage({ type: 'error', text: 'Please paste raw text or review notes to analyze.' });
+      return;
+    }
+
+    setLoading(true);
+    setStatusMessage(null);
+
+    try {
+      const res = await fetch('/api/ai-autofill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rawText: rawText.trim(),
+          existingGenres: existingGenresPool || []
+        })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Server responded with ${res.status}`);
+      }
+
+      const parsed = await res.json();
+      onAutofillApplied(parsed);
+      setStatusMessage({
+        type: 'success',
+        text: `Extracted and mapped "${parsed.title || 'entry'}"! Review the filled fields below.`
+      });
+      setRawText('');
+    } catch (err: any) {
+      console.error('AI autofill error:', err);
+      setStatusMessage({
+        type: 'error',
+        text: err?.message || 'Failed to autofill from text. Please check server or input.'
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      {/* Pros */}
-      <div className="p-4 rounded-xl bg-emerald-950/20 border border-emerald-500/30 space-y-3">
-        <div className="flex items-center justify-between">
-          <label className="text-xs font-mono font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1">
-            <CheckCircle2 size={14} /> Pros (Strengths)
-          </label>
-          <button
-            type="button"
-            onClick={handleAddPro}
-            className="text-xs font-mono text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
-          >
-            <Plus size={12} /> Add Pro
-          </button>
+    <div className="rounded-xl border border-amber-500/40 bg-gradient-to-r from-amber-950/30 via-slate-900 to-amber-950/20 p-4 shadow-md space-y-3 font-mono">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/30">
+            <Sparkles size={16} />
+          </div>
+          <div>
+            <h4 className="text-xs sm:text-sm font-bold text-slate-100 uppercase tracking-wide flex items-center gap-2">
+              Smart AI Autofill (Quick Paste)
+              <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-normal">
+                Paste Everything
+              </span>
+            </h4>
+            <p className="text-[11px] text-slate-400 font-sans">
+              Paste messy raw notes, links, credits, and review draft. AI sorts and maps all fields automatically.
+            </p>
+          </div>
         </div>
 
-        <div className="space-y-2">
-          {pros.map((pro, idx) => (
-            <div key={`pro-${idx}`} className="flex items-center gap-2">
-              <input
-                type="text"
-                placeholder={`Strength #${idx + 1} (Press Enter to add next)...`}
-                value={pro}
-                onChange={(e) => {
-                  const next = [...pros];
-                  next[idx] = e.target.value;
-                  updatePros(next);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleAddPro();
-                    setTimeout(() => {
-                      const inputs = document.querySelectorAll<HTMLInputElement>('.pro-input-field');
-                      if (inputs && inputs[idx + 1]) {
-                        inputs[idx + 1].focus();
-                      }
-                    }, 50);
-                  }
-                }}
-                className="pro-input-field flex-1 bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  const next = pros.filter((_, i) => i !== idx);
-                  updatePros(next.length > 0 ? next : ['']);
-                }}
-                className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer"
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-          ))}
-        </div>
+        <button
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition cursor-pointer"
+        >
+          {isOpen ? 'Minimize' : 'Open Paste Box'}
+        </button>
       </div>
 
-      {/* Cons */}
-      <div className="p-4 rounded-xl bg-rose-950/20 border border-rose-500/30 space-y-3">
-        <div className="flex items-center justify-between">
-          <label className="text-xs font-mono font-bold uppercase tracking-wider text-rose-400 flex items-center gap-1">
-            <XCircle size={14} /> Cons (Flaws)
-          </label>
-          <button
-            type="button"
-            onClick={handleAddCon}
-            className="text-xs font-mono text-rose-400 hover:underline flex items-center gap-1 cursor-pointer"
-          >
-            <Plus size={12} /> Add Con
-          </button>
-        </div>
+      {isOpen && (
+        <div className="space-y-3 pt-2 animate-fade-in">
+          <textarea
+            rows={6}
+            value={rawText}
+            onChange={(e) => setRawText(e.target.value)}
+            placeholder="Paste everything here (Title, creator, release date, medium format, country, language, genres, tags, score, verdict, and full linear review all mixed together)..."
+            className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-xs sm:text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-sans leading-relaxed resize-y"
+          />
 
-        <div className="space-y-2">
-          {cons.map((con, idx) => (
-            <div key={`con-${idx}`} className="flex items-center gap-2">
-              <input
-                type="text"
-                placeholder={`Critique #${idx + 1} (Press Enter to add next)...`}
-                value={con}
-                onChange={(e) => {
-                  const next = [...cons];
-                  next[idx] = e.target.value;
-                  updateCons(next);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleAddCon();
-                    setTimeout(() => {
-                      const inputs = document.querySelectorAll<HTMLInputElement>('.con-input-field');
-                      if (inputs && inputs[idx + 1]) {
-                        inputs[idx + 1].focus();
-                      }
-                    }, 50);
-                  }
-                }}
-                className="con-input-field flex-1 bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-rose-500"
-              />
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <button
+              type="button"
+              disabled={loading || !rawText.trim()}
+              onClick={handleAutofill}
+              className={`px-4 py-2 rounded-lg font-mono text-xs font-bold flex items-center gap-2 transition cursor-pointer ${
+                loading || !rawText.trim()
+                  ? 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
+                  : 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20'
+              }`}
+            >
+              {loading ? (
+                <>
+                  <div className="w-3.5 h-3.5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                  <span>Analyzing & Sorting Fields...</span>
+                </>
+              ) : (
+                <>
+                  <Wand2 size={13} />
+                  <span>Autofill All Fields</span>
+                </>
+              )}
+            </button>
+
+            {rawText && (
               <button
                 type="button"
-                onClick={() => {
-                  const next = cons.filter((_, i) => i !== idx);
-                  updateCons(next.length > 0 ? next : ['']);
-                }}
-                className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer"
+                onClick={() => setRawText('')}
+                className="text-xs text-slate-400 hover:text-slate-200 transition cursor-pointer"
               >
-                <Trash2 size={14} />
+                Clear input
               </button>
+            )}
+          </div>
+
+          {statusMessage && (
+            <div
+              className={`p-2.5 rounded-lg text-xs flex items-center gap-2 ${
+                statusMessage.type === 'success'
+                  ? 'bg-emerald-950/60 border border-emerald-500/40 text-emerald-300'
+                  : 'bg-rose-950/60 border border-rose-500/40 text-rose-300'
+              }`}
+            >
+              {statusMessage.type === 'success' ? (
+                <Check size={14} className="text-emerald-400 shrink-0" />
+              ) : (
+                <AlertCircle size={14} className="text-rose-400 shrink-0" />
+              )}
+              <span>{statusMessage.text}</span>
             </div>
-          ))}
+          )}
         </div>
-      </div>
+      )}
     </div>
   );
 });
@@ -1920,6 +1978,53 @@ const AdminMediaModalComponent: React.FC<AdminMediaModalProps> = ({
   }, [allItems]);
 
   // Fill sample data
+  const handleAutofillApplied = useCallback((extracted: any) => {
+    setFormData((prev) => {
+      const next: FormDataShape = {
+        ...prev,
+        title: extracted.title?.trim() || prev.title,
+        cover: extracted.cover?.trim() || prev.cover,
+        mainCreator: extracted.mainCreator?.trim() || prev.mainCreator,
+        mainCreatorCategory: (extracted.mainCreatorCategory as CreatorCategory) || prev.mainCreatorCategory,
+        creatorNation: extracted.creatorNation?.trim() || prev.creatorNation,
+        mediaFormat: extracted.mediaFormat || prev.mediaFormat,
+        isCustomCategory: Boolean(extracted.isCustomCategory),
+        customCategoryName: extracted.customCategoryName?.trim() || prev.customCategoryName,
+        releaseDate: extracted.releaseDate?.trim() || prev.releaseDate,
+        countryOfOrigin: extracted.countryOfOrigin?.trim() || prev.countryOfOrigin,
+        originalLanguage: extracted.originalLanguage?.trim() || prev.originalLanguage,
+        consumedVersion: extracted.consumedVersion?.trim() || prev.consumedVersion,
+        genresStr: Array.isArray(extracted.genres) && extracted.genres.length > 0
+          ? extracted.genres.join(', ')
+          : (typeof extracted.genres === 'string' ? extracted.genres : prev.genresStr),
+        genreStyleTags: Array.isArray(extracted.genreStyleTags) && extracted.genreStyleTags.length > 0
+          ? extracted.genreStyleTags
+          : prev.genreStyleTags,
+        philosophicalTags: Array.isArray(extracted.philosophicalTags) && extracted.philosophicalTags.length > 0
+          ? extracted.philosophicalTags
+          : prev.philosophicalTags,
+        summaryPlot: extracted.summaryPlot?.trim() || prev.summaryPlot,
+        review: extracted.review?.trim() || prev.review,
+        hornetScore: typeof extracted.hornetScore === 'number' && !isNaN(extracted.hornetScore)
+          ? extracted.hornetScore
+          : prev.hornetScore,
+        hornetVerdict: extracted.hornetVerdict?.trim() || prev.hornetVerdict,
+        otherCreatorsStr: Array.isArray(extracted.otherCreators) && extracted.otherCreators.length > 0
+          ? extracted.otherCreators.join(', ')
+          : prev.otherCreatorsStr,
+        similarMediaStr: Array.isArray(extracted.similarMedia) && extracted.similarMedia.length > 0
+          ? extracted.similarMedia.join(', ')
+          : prev.similarMediaStr,
+        mediumInfluencesStr: Array.isArray(extracted.mediumInfluences) && extracted.mediumInfluences.length > 0
+          ? extracted.mediumInfluences.join(', ')
+          : prev.mediumInfluencesStr
+      };
+      formRef.current = next;
+      return next;
+    });
+    setFormKey((k) => k + 1);
+  }, []);
+
   const handleQuickSampleData = useCallback(() => {
     const sample: FormDataShape = {
       cover: 'https://upload.wikimedia.org/wikipedia/en/2/23/Solaris_novel.jpg',
@@ -1946,6 +2051,7 @@ const AdminMediaModalComponent: React.FC<AdminMediaModalProps> = ({
       ],
       genreStyleTags: ['surreal', 'eerie', 'cerebral', 'atmospheric'],
       summaryPlot: 'A psychologist sent to an enigmatic oceanic planet encounters unsettling physical manifestations of his deepest repressed memories.',
+      review: 'Solaris is an astonishing, introspective masterpiece of philosophical science fiction. Rather than treating extraterrestrial life as an adventure or a puzzle to be conquered, Lem presents an alien presence that reflects the deep psychological scars, repressed grief, and epistemological limitations of humanity itself. The oceanic planet is not an adversary but a cosmic mirror.',
       pros: [
         'Profound meditation on humanity’s inability to truly comprehend non-human intelligence',
         'Unforgettably eerie oceanic manifestations of emotional subconscious'
@@ -2077,6 +2183,7 @@ const AdminMediaModalComponent: React.FC<AdminMediaModalProps> = ({
       philosophicalTags: processedPhiloTags,
       genreStyleTags: processedStyleTags,
       summaryPlot: current.summaryPlot.trim(),
+      review: current.review?.trim() || '',
       pros: current.pros.map((p) => p.trim()).filter(Boolean),
       cons: current.cons.map((c) => c.trim()).filter(Boolean),
       hornetScore: current.hornetScore,
@@ -2299,6 +2406,11 @@ const AdminMediaModalComponent: React.FC<AdminMediaModalProps> = ({
 
         {/* Scrollable Form Body with Localized Sub-Form Sections */}
         <form key={formKey} onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-6">
+          {/* Smart AI Autofill Assistant */}
+          <AIAutofillSection
+            onAutofillApplied={handleAutofillApplied}
+            existingGenresPool={existingGenresPool}
+          />
           {/* Cover Section */}
           <CoverSection
             initialCover={formData.cover}
@@ -2376,10 +2488,9 @@ const AdminMediaModalComponent: React.FC<AdminMediaModalProps> = ({
             onUpdateField={handleUpdateField}
           />
 
-          {/* Pros & Cons */}
-          <ProsAndConsSection
-            initialPros={formData.pros}
-            initialCons={formData.cons}
+          {/* Linear In-Depth Review */}
+          <LinearReviewSection
+            initialReview={formData.review}
             onUpdateField={handleUpdateField}
           />
 

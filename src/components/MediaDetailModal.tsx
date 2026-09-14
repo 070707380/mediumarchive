@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MediaItem, getScoreLevelInfo, DEFAULT_SCORING_PHILOSOPHY } from '../types';
+import { MediaItem, getScoreLevelInfo, DEFAULT_SCORING_PHILOSOPHY, getItemReview } from '../types';
 import { HornetBadge } from './HornetBadge';
 import { SmartImage } from './SmartImage';
 import { getItemShareableUrl } from '../utils/urlUtils';
@@ -8,8 +8,6 @@ import {
   Calendar,
   User,
   Users,
-  CheckCircle2,
-  XCircle,
   ExternalLink,
   Edit,
   Trash2,
@@ -22,7 +20,9 @@ import {
   Info,
   Disc,
   Copy,
-  Check
+  Check,
+  Globe,
+  Languages
 } from 'lucide-react';
 
 interface MediaDetailModalProps {
@@ -323,6 +323,7 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   if (!item) return null;
 
   const scoreInfo = getScoreLevelInfo(item.hornetScore);
+  const reviewContent = getItemReview(item);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 overflow-y-auto bg-slate-950/85 backdrop-blur-md animate-fade-in">
@@ -330,70 +331,46 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
         className="relative w-full max-w-4xl my-6 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col text-slate-200 max-h-[92vh]"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Top Header Bar */}
-        <div className="flex items-center justify-between px-3 sm:px-4 py-2 bg-slate-950/95 border-b border-slate-800/80 shrink-0">
-          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap min-w-0 pr-2">
-            <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-700/80 font-mono text-[10px] sm:text-xs text-amber-300 font-semibold flex items-center gap-1 shrink-0">
-              {item.isCustomCategory && <Tag size={10} className="text-amber-400" />}
-              <span>{item.isCustomCategory ? (item.customCategoryName || item.mediaFormat) : item.mediaFormat}</span>
-            </span>
-            <span className="px-1.5 py-0.5 rounded bg-slate-900/80 border border-slate-800 font-mono text-[10px] sm:text-xs text-slate-300 flex items-center gap-1 shrink-0">
-              <Calendar size={10} className="text-slate-400" /> {item.releaseDate}
-            </span>
-            {item.countryOfOrigin && (
-              <span className="px-1.5 py-0.5 rounded bg-slate-900/80 border border-slate-800 font-mono text-[10px] sm:text-xs text-amber-200/90 flex items-center gap-1 shrink-0">
-                <span className="text-slate-500 text-[9px] sm:text-[10px] hidden sm:inline">Origin:</span>
-                <span className="font-semibold">{item.countryOfOrigin}</span>
-              </span>
-            )}
-            {item.originalLanguage && (
-              <span className="px-1.5 py-0.5 rounded bg-slate-900/80 border border-slate-800 font-mono text-[10px] sm:text-xs text-cyan-200/90 flex items-center gap-1 shrink-0">
-                <span className="text-slate-500 text-[9px] sm:text-[10px] hidden sm:inline">Lang:</span>
-                <span className="font-semibold">{item.originalLanguage}</span>
-              </span>
-            )}
-            {item.consumedVersion && (
-              <span className="px-1.5 py-0.5 rounded bg-purple-950/60 border border-purple-500/40 font-mono text-[9px] sm:text-xs text-purple-300 flex items-center gap-1 shrink-0">
-                <span className="text-purple-400/70 hidden sm:inline">Consumed:</span>
-                <span className="font-bold">{item.consumedVersion}</span>
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-1.5 shrink-0">
-            <button
-              onClick={handleCopyLink}
-              className={`p-1.5 sm:px-2.5 sm:py-1 rounded-lg border text-xs font-mono font-medium flex items-center gap-1.5 transition cursor-pointer ${
-                copiedLink
-                  ? 'bg-emerald-950/80 border-emerald-500/60 text-emerald-300'
-                  : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300 hover:text-slate-100'
-              }`}
-              title="Copy shareable link for this entry"
-            >
-              {copiedLink ? (
-                <>
-                  <Check size={13} className="text-emerald-400" />
-                  <span className="text-[11px] hidden sm:inline">Copied!</span>
-                </>
-              ) : (
-                <>
-                  <Copy size={13} className="text-slate-400" />
-                  <span className="hidden sm:inline">Share</span>
-                </>
-              )}
-            </button>
-
-            <button
-              onClick={onClose}
-              className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 transition cursor-pointer"
-            >
-              <X size={16} />
-            </button>
-          </div>
-        </div>
-
-        {/* Modal Scrollable Container */}
+        {/* Modal Scrollable Container (no pinned metadata tab overhead) */}
         <div className="p-5 sm:p-6 overflow-y-auto space-y-6">
+          {/* Top Bar with Share and Close Actions (scrolls naturally with modal, not pinned over reading) */}
+          <div className="flex items-center justify-between gap-2 pb-1">
+            <div className="text-xs font-mono text-slate-500 truncate">
+              Archive Entry
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={handleCopyLink}
+                className={`p-1.5 sm:px-2.5 sm:py-1 rounded-lg border text-xs font-mono font-medium flex items-center gap-1.5 transition cursor-pointer ${
+                  copiedLink
+                    ? 'bg-emerald-950/80 border-emerald-500/60 text-emerald-300'
+                    : 'bg-slate-950 hover:bg-slate-800 border-slate-800 text-slate-300 hover:text-slate-100'
+                }`}
+                title="Copy shareable link for this entry"
+              >
+                {copiedLink ? (
+                  <>
+                    <Check size={13} className="text-emerald-400" />
+                    <span className="text-[11px] hidden sm:inline">Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy size={13} className="text-slate-400" />
+                    <span className="hidden sm:inline">Share</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                onClick={onClose}
+                className="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 transition cursor-pointer"
+                title="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+
           {/* Main Hero Header: PC Wallpaper Widescreen Image Banner */}
           <div className="space-y-4 bg-slate-950/90 p-4 sm:p-5 rounded-2xl border border-slate-800">
             {/* PC Wallpaper Frame (Aspect 16:9 / Widescreen Banner) */}
@@ -422,9 +399,39 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
               </div>
             </div>
 
-            {/* Creators & Verdict Row */}
+            {/* Tidy Metadata Information Strip */}
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs font-mono pt-0.5">
+              <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-700/80 text-[10px] sm:text-xs text-amber-300 font-semibold flex items-center gap-1 shrink-0">
+                {item.isCustomCategory && <Tag size={10} className="text-amber-400" />}
+                <span>{item.isCustomCategory ? (item.customCategoryName || item.mediaFormat) : item.mediaFormat}</span>
+              </span>
+              <span className="px-2 py-0.5 rounded bg-slate-900/80 border border-slate-800 text-[10px] sm:text-xs text-slate-300 flex items-center gap-1 shrink-0">
+                <Calendar size={11} className="text-slate-400" /> {item.releaseDate}
+              </span>
+              {item.countryOfOrigin && (
+                <span className="px-2 py-0.5 rounded bg-slate-900/80 border border-slate-800 text-[10px] sm:text-xs text-amber-200/90 flex items-center gap-1 shrink-0">
+                  <Globe size={11} className="text-slate-400" />
+                  <span className="text-slate-500 text-[9px] sm:text-[10px]">Origin:</span>
+                  <span className="font-semibold">{item.countryOfOrigin}</span>
+                </span>
+              )}
+              {item.originalLanguage && (
+                <span className="px-2 py-0.5 rounded bg-slate-900/80 border border-slate-800 text-[10px] sm:text-xs text-cyan-200/90 flex items-center gap-1 shrink-0">
+                  <Languages size={11} className="text-slate-400" />
+                  <span className="text-slate-500 text-[9px] sm:text-[10px]">Lang:</span>
+                  <span className="font-semibold">{item.originalLanguage}</span>
+                </span>
+              )}
+              {item.consumedVersion && (
+                <span className="px-2 py-0.5 rounded bg-purple-950/60 border border-purple-500/40 text-[10px] sm:text-xs text-purple-300 flex items-center gap-1 shrink-0">
+                  <span className="text-purple-400/70">Consumed:</span>
+                  <span className="font-bold">{item.consumedVersion}</span>
+                </span>
+              )}
+            </div>
+
+            {/* Creators Row */}
             <div className="space-y-3 pt-1">
-              {/* Creators Row */}
               <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300 font-mono">
                 {/* Main Creator Pill */}
                 <div
@@ -742,57 +749,51 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
             </div>
           </div>
 
-          {/* Dual Columns: Pros & Cons */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Pros */}
-            <div className="p-4 rounded-xl bg-emerald-950/15 border border-emerald-500/20 space-y-2">
-              <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
-                <CheckCircle2 size={15} /> Pros
-              </h4>
-              <ul className="space-y-2 pt-1 text-xs sm:text-sm text-slate-300">
-                {item.pros && item.pros.length > 0 ? (
-                  item.pros.map((pro, idx) => (
-                    <li key={idx} className="flex items-start gap-2">
-                      <span className="text-emerald-400 shrink-0 mt-0.5">•</span>
-                      <span>{pro}</span>
-                    </li>
-                  ))
-                ) : (
-                  <li className="text-slate-500 italic font-mono text-xs">None listed</li>
-                )}
-              </ul>
-            </div>
-
-            {/* Cons */}
-            <div className="p-4 rounded-xl bg-rose-950/15 border border-rose-500/20 space-y-3">
-              <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-rose-400 flex items-center gap-1.5">
-                <XCircle size={15} /> Cons
-              </h4>
-              <ul className="space-y-2 pt-1 text-xs sm:text-sm text-slate-300">
-                {item.cons && item.cons.length > 0 ? (
-                  item.cons.map((con, idx) => (
-                    <li key={idx} className="flex items-start gap-2">
-                      <span className="text-rose-400 shrink-0 mt-0.5">•</span>
-                      <span>{con}</span>
-                    </li>
-                  ))
-                ) : (
-                  <li className="text-slate-500 italic font-mono text-xs">None listed</li>
-                )}
-              </ul>
-
-              {/* Scoring Philosophy Notice */}
-              <div className="pt-2.5 border-t border-rose-500/20 space-y-1.5 font-mono">
-                <div className="flex items-center gap-1.5 text-amber-400/90 font-bold text-[10px] uppercase tracking-wider">
-                  <BookOpen size={11} /> Scoring Philosophy
-                </div>
-
-                <p className="font-sans text-[10px] leading-relaxed text-slate-400/90 whitespace-pre-line">
-                  {scoringPhilosophy}
-                </p>
+          {/* Linear Review Article */}
+          <article className="p-6 sm:p-8 rounded-2xl bg-slate-950/80 border border-slate-800 shadow-xl space-y-5">
+            <div className="flex items-center justify-between pb-3.5 border-b border-slate-800/80">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-amber-400" />
+                <h3 className="text-xs sm:text-sm font-mono font-bold uppercase tracking-wider text-amber-400">
+                  Review & Critical Assessment
+                </h3>
+              </div>
+              <div className="text-xs font-mono text-slate-400">
+                <span className="text-amber-400 font-bold">{item.hornetScore}/10</span>
+                <span className="text-slate-500 ml-1.5">• {scoreInfo.label}</span>
               </div>
             </div>
-          </div>
+
+            {item.hornetVerdict && (
+              <div className="p-4 rounded-xl bg-amber-500/10 border-l-4 border-amber-500 text-amber-100/90 text-sm sm:text-base italic leading-relaxed font-sans">
+                "{item.hornetVerdict}"
+              </div>
+            )}
+
+            {reviewContent ? (
+              <div className="text-slate-200 text-sm sm:text-base leading-relaxed sm:leading-loose font-sans space-y-4 pt-1">
+                {reviewContent.split(/\n\s*\n/).map((paragraph, pIdx) => (
+                  <p key={pIdx} className="text-slate-200/95">
+                    {paragraph.trim()}
+                  </p>
+                ))}
+              </div>
+            ) : (
+              <div className="text-xs font-mono text-slate-500 italic py-4">
+                No linear review written yet for this entry.
+              </div>
+            )}
+
+            {/* Scoring Philosophy Notice tucked cleanly at the bottom of the article */}
+            <div className="pt-4 border-t border-slate-800/80 space-y-1.5 font-mono">
+              <div className="flex items-center gap-1.5 text-amber-400/80 font-bold text-[10px] uppercase tracking-wider">
+                <BookOpen size={11} /> Scoring Philosophy
+              </div>
+              <p className="font-sans text-[10px] leading-relaxed text-slate-400/80 whitespace-pre-line">
+                {scoringPhilosophy}
+              </p>
+            </div>
+          </article>
 
           {/* Medium Influences & Similar Media Row */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-800 pt-4">

@@ -1,4 +1,4 @@
-import { MediaItem } from '../types';
+import { MediaItem, getItemReview } from '../types';
 import { getSortableTitle } from './stringUtils';
 
 export interface ProsConsStats {
@@ -32,7 +32,6 @@ export function calculateProsConsStats(item: MediaItem): ProsConsStats {
   const netPros = prosCount - consCount;
   const total = prosCount + consCount;
   const ratio = total > 0 ? prosCount / total : 0.5;
-  // Dynamic metric balancing net pros and ratio percentage
   const metric = netPros * 1000 + ratio * 100;
   return { prosCount, consCount, netPros, ratio, total, metric };
 }
@@ -40,7 +39,7 @@ export function calculateProsConsStats(item: MediaItem): ProsConsStats {
 /**
  * Compare two media items based on Hornet Quality logic:
  * 1. Hornet Score (10 down to 0) - ABSOLUTE FIRST PARTITION (a 5/10 will ALWAYS rank over a 4/10)
- * 2. Pros-cons quantity dynamic + ratio
+ * 2. Review evaluation & depth
  * 3. Quantity of philosophical tags
  * 4. Alphabetical title tie-breaker
  */
@@ -57,12 +56,12 @@ export function compareByQuality(a: MediaItem, b: MediaItem): number {
     return scoreDiff;
   }
 
-  // 2. Intra-tier pros-cons quantity dynamic + ratio
-  const statsA = calculateProsConsStats(a);
-  const statsB = calculateProsConsStats(b);
-  const prosConsDiff = statsB.metric - statsA.metric;
-  if (Math.abs(prosConsDiff) > 0.001) {
-    return prosConsDiff;
+  // 2. Intra-tier review comparison
+  const revA = getItemReview(a).trim();
+  const revB = getItemReview(b).trim();
+  const revDiff = revB.length - revA.length;
+  if (revDiff !== 0) {
+    return revDiff;
   }
 
   // 3. Intra-tier quantity of philosophical tags

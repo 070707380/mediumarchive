@@ -7,6 +7,7 @@ import verifyPasscodeHandler from './api/verify-passcode.js';
 import saveArchiveHandler from './api/save-archive.js';
 import getArchiveHandler from './api/get-archive.js';
 import aiSortHandler from './api/ai-sort.js';
+import aiAutofillHandler from './api/ai-autofill.js';
 
 async function startServer() {
   const app = express();
@@ -66,6 +67,16 @@ async function startServer() {
       await aiSortHandler(req, res);
     } catch (err: any) {
       console.error('AI Sort API Handler Error:', err);
+      res.status(500).json({ error: err.message || 'Server error' });
+    }
+  });
+
+  // Mount /api/ai-autofill route
+  app.all('/api/ai-autofill', async (req, res) => {
+    try {
+      await aiAutofillHandler(req, res);
+    } catch (err: any) {
+      console.error('AI Autofill API Handler Error:', err);
       res.status(500).json({ error: err.message || 'Server error' });
     }
   });

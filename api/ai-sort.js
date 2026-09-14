@@ -14,16 +14,6 @@ function getItemScore(item) {
   return !isNaN(parsed) ? parsed : 0;
 }
 
-function calculateProsConsStats(item) {
-  const prosCount = Array.isArray(item?.pros) ? item.pros.length : 0;
-  const consCount = Array.isArray(item?.cons) ? item.cons.length : 0;
-  const netPros = prosCount - consCount;
-  const total = prosCount + consCount;
-  const ratio = total > 0 ? prosCount / total : 0.5;
-  const metric = netPros * 1000 + ratio * 100;
-  return { prosCount, consCount, netPros, ratio, total, metric };
-}
-
 function compareByQuality(a, b) {
   if (!a && !b) return 0;
   if (!a) return 1;
@@ -35,11 +25,11 @@ function compareByQuality(a, b) {
   if (Math.abs(scoreDiff) > 0.001) {
     return scoreDiff;
   }
-  const statsA = calculateProsConsStats(a);
-  const statsB = calculateProsConsStats(b);
-  const prosConsDiff = statsB.metric - statsA.metric;
-  if (Math.abs(prosConsDiff) > 0.001) {
-    return prosConsDiff;
+  const revA = (a.review || a.hornetVerdict || '').trim();
+  const revB = (b.review || b.hornetVerdict || '').trim();
+  const revDiff = revB.length - revA.length;
+  if (revDiff !== 0) {
+    return revDiff;
   }
   const philoA = Array.isArray(a.philosophicalTags) ? a.philosophicalTags.length : (Array.isArray(a.philoTags) ? a.philoTags.length : 0);
   const philoB = Array.isArray(b.philosophicalTags) ? b.philosophicalTags.length : (Array.isArray(b.philoTags) ? b.philoTags.length : 0);
@@ -53,7 +43,7 @@ function compareByQuality(a, b) {
 function computeCacheKey(items, scoringPhilosophy) {
   const itemSignature = items
     .slice(0, 100)
-    .map((i) => `${i.id || ''}:${i.hornetScore || 0}:${(i.pros || []).length}:${(i.cons || []).length}`)
+    .map((i) => `${i.id || ''}:${i.hornetScore || 0}:${(i.review || i.hornetVerdict || '').length}`)
     .join(',');
   return `${items.length}_${itemSignature}_${(scoringPhilosophy || '').slice(0, 50)}`;
 }
@@ -136,18 +126,20 @@ export default async function handler(req, res) {
         });
 
         const validItems = items.filter((i) => i && i.id);
-        const simplifiedItems = validItems.map((item) => ({
-          id: item.id,
-          title: item.title,
-          creator: item.mainCreator || '',
-          format: item.mediaFormat || '',
-          score: item.hornetScore || 0,
-          pros: item.pros || [],
-          cons: item.cons || [],
-          philoTags: item.philosophicalTags || [],
-          version: item.consumedVersion || '',
-          note: item.reviewNote ? item.reviewNote.slice(0, 200) : '',
-        }));
+        const simplifiedItems = validItems.map((item) => {
+          const itemReview = item.review || item.hornetVerdict || (Array.isArray(item.pros) && Array.isArray(item.cons) ? [...item.pros, ...item.cons].join('. ') : '');
+          return {
+            id: item.id,
+            title: item.title,
+            creator: item.mainCreator || '',
+            format: item.mediaFormat || '',
+            score: item.hornetScore || 0,
+            review: itemReview ? itemReview.slice(0, 1500) : '',
+            verdict: item.hornetVerdict || '',
+            philoTags: item.philosophicalTags || [],
+            version: item.consumedVersion || '',
+          };
+        });
 
         const philosophyText =
           scoringPhilosophy ||
@@ -178,7 +170,7 @@ ENFORCE THIS SCORING PHILOSOPHY:
 
 CRITICAL RULES:
 1. STRICT SCORE PARTITION: Hornet Score is the dominant primary ranking factor (10 is best, down to 1). A higher score ALWAYS ranks above a lower score (e.g. 10 > 9 > 8 > 7 > 6 > 5 > 4 > 3 > 2 > 1). A 4/10 can NEVER be placed above a 5/10.
-2. Intra-Tier Ranking: For items with the EXACT SAME score (e.g. two 7/10 items), evaluate the quality, balance, and net depth of PROS vs CONS, emotional resonance, structural mechanism, and philosophical tags to decide which item comes first within that tier.
+2. Intra-Tier Ranking: For items with the EXACT SAME score (e.g. two 7/10 items), read the linear reviews and verdicts to compare depth of critical evaluation, artistic resonance, mechanical execution, and philosophical ideas to decide which item ranks first within that tier.
 3. Completely disregard historical significance, nostalgia, mainstream popularity, release date context, or creator intent.
 4. You MUST include every single item ID in your output. Return the exact ordered array of item IDs from BEST (rank 1) to WORST.
 

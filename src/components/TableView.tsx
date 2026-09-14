@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { MediaItem } from '../types';
 import { SmartImage } from './SmartImage';
 import { getSortableTitle } from '../utils/stringUtils';
-import { compareByQuality, calculateProsConsStats, buildCompositeQualityRankMap, getItemScore } from '../utils/sortUtils';
+import { compareByQuality, buildCompositeQualityRankMap, getItemScore } from '../utils/sortUtils';
 import { normalizeMediaFormat } from '../utils/formatUtils';
 import {
   Film,
@@ -12,8 +12,6 @@ import {
   Tv,
   Palette,
   Star,
-  CheckCircle2,
-  XCircle,
   ArrowUpDown,
   Tag,
   HelpCircle,
@@ -46,7 +44,7 @@ export const TableView: React.FC<TableViewProps> = ({
 }) => {
   // Sort field: 'quality' (default), 'row', 'title', 'creator', 'format', 'score', 'proscons', 'year'
   const [sortField, setSortField] = useState<
-    'quality' | 'row' | 'title' | 'creator' | 'format' | 'score' | 'proscons' | 'year'
+    'quality' | 'row' | 'title' | 'creator' | 'format' | 'score' | 'year'
   >('quality');
   const [sortAsc, setSortAsc] = useState<boolean>(false);
   const [localAiRankMap, setLocalAiRankMap] = useState<Map<string, number> | null>(null);
@@ -147,12 +145,6 @@ export const TableView: React.FC<TableViewProps> = ({
         }
         return sortAsc ? compareByQuality(b, a) : compareByQuality(a, b);
       }
-      if (sortField === 'proscons') {
-        const statsA = calculateProsConsStats(a);
-        const statsB = calculateProsConsStats(b);
-        const diff = statsB.metric - statsA.metric;
-        return sortAsc ? -diff : diff;
-      }
       if (sortField === 'year') {
         const yA = a.releaseDate ? parseInt(a.releaseDate.slice(0, 4)) || 0 : 0;
         const yB = b.releaseDate ? parseInt(b.releaseDate.slice(0, 4)) || 0 : 0;
@@ -165,13 +157,13 @@ export const TableView: React.FC<TableViewProps> = ({
   }, [items, sortField, sortAsc, compositeRankMap]);
 
   const handleHeaderClick = (
-    field: 'quality' | 'row' | 'title' | 'creator' | 'format' | 'score' | 'proscons' | 'year'
+    field: 'quality' | 'row' | 'title' | 'creator' | 'format' | 'score' | 'year'
   ) => {
     if (sortField === field) {
       setSortAsc(!sortAsc);
     } else {
       setSortField(field);
-      if (['quality', 'score', 'proscons'].includes(field)) {
+      if (['quality', 'score'].includes(field)) {
         setSortAsc(false);
       } else {
         setSortAsc(true);
@@ -258,18 +250,6 @@ export const TableView: React.FC<TableViewProps> = ({
                 </div>
               </th>
 
-              {/* Pros & Cons Balance */}
-              <th
-                onClick={() => handleHeaderClick('proscons')}
-                className="py-2.5 px-3 w-28 text-center border-r border-slate-800 hover:text-slate-200 cursor-pointer"
-                title="Pros vs Cons Dynamic Balance"
-              >
-                <div className="flex items-center justify-center gap-1">
-                  <span>Pros / Cons</span>
-                  {sortField === 'proscons' && <span className="text-amber-400">{sortAsc ? '↑' : '↓'}</span>}
-                </div>
-              </th>
-
               <th
                 onClick={() => handleHeaderClick('year')}
                 className="py-2.5 px-3 w-20 text-center border-r border-slate-800 hover:text-slate-200 cursor-pointer"
@@ -291,8 +271,6 @@ export const TableView: React.FC<TableViewProps> = ({
               const releaseYear = formatReleaseYear(item.releaseDate);
               const genres = item.genres || [];
               const styleTags = item.genreStyleTags || [];
-              const prosCount = Array.isArray(item.pros) ? item.pros.length : 0;
-              const consCount = Array.isArray(item.cons) ? item.cons.length : 0;
 
               return (
                 <tr
@@ -356,18 +334,6 @@ export const TableView: React.FC<TableViewProps> = ({
                     <span className="inline-block px-2 py-0.5 rounded bg-slate-950 border border-amber-500/40 text-amber-400 font-black text-[11px] shadow-sm">
                       {item.hornetScore}/10
                     </span>
-                  </td>
-
-                  {/* Pros & Cons Balance */}
-                  <td className="py-2 px-3 text-center border-r border-slate-800 font-mono text-[11px]">
-                    <div className="flex items-center justify-center gap-1.5">
-                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800/40 font-bold">
-                        +{prosCount}
-                      </span>
-                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-rose-950/60 text-rose-400 border border-rose-800/40 font-bold">
-                        -{consCount}
-                      </span>
-                    </div>
                   </td>
 
                   {/* Release Year */}

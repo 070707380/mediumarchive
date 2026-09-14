@@ -90,8 +90,9 @@ export interface MediaItem {
   philosophicalTags: string[]; // e.g. ["Existentialism", "Absurdism"]
   genreStyleTags: string[]; // e.g. ["Grimdark", "Cyberpunk"]
   summaryPlot?: string; // Summary plot or premise
-  pros: string[];
-  cons: string[];
+  review?: string; // Linear long-form review article
+  pros?: string[];
+  cons?: string[];
   hornetScore: number; // 1 to 10 scale
   hornetVerdict?: string; // Quick commentary
   similarMedia: (string | MediaRelationEntry)[]; // Array of titles or rich media relation objects
@@ -158,6 +159,25 @@ export function getScoreLabel(score: number): string {
 export function getScoreLevelInfo(score: number): RatingLevel {
   const rounded = Math.max(1, Math.min(10, Math.round(score)));
   return RATING_SCALE_LEVELS.find((l) => l.score === rounded) || RATING_SCALE_LEVELS[3];
+}
+
+export function getItemReview(item: Partial<MediaItem>): string {
+  if (item.review && item.review.trim()) {
+    return item.review.trim();
+  }
+  const parts: string[] = [];
+  if (item.hornetVerdict && item.hornetVerdict.trim()) {
+    parts.push(item.hornetVerdict.trim());
+  }
+  if (Array.isArray(item.pros) && item.pros.length > 0) {
+    const prosText = item.pros.filter(Boolean).join('\n\n');
+    if (prosText) parts.push(prosText);
+  }
+  if (Array.isArray(item.cons) && item.cons.length > 0) {
+    const consText = item.cons.filter(Boolean).join('\n\n');
+    if (consText) parts.push(consText);
+  }
+  return parts.join('\n\n');
 }
 
 export const DEFAULT_SCORING_PHILOSOPHY = `My scoring starts with the experience I actually have with a work: what it gives me, how strongly its parts affect that experience, and how those parts function together. I don't use a fixed checklist or universal hierarchy of qualities. Emotional, mechanical, narrative, visual, structural, or other qualities matter only to the extent that they matter in the particular work. Something being complex, simple, polished, difficult, innovative, realistic, ambiguous, or unconventional is not automatically good or bad. I care about what those qualities actually produce.
