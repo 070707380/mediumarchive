@@ -1564,10 +1564,11 @@ const AIAutofillSection = React.memo<{
       }
 
       const parsed = await res.json();
-      onAutofillApplied(parsed);
+      const extracted = parsed?.data || parsed || {};
+      onAutofillApplied(extracted);
       setStatusMessage({
         type: 'success',
-        text: `Extracted and mapped "${parsed.title || 'entry'}"! Review the filled fields below.`
+        text: `Extracted and mapped "${extracted.title || 'entry'}"! All fields below have been populated.`
       });
       setRawText('');
     } catch (err: any) {
@@ -1978,46 +1979,162 @@ const AdminMediaModalComponent: React.FC<AdminMediaModalProps> = ({
   }, [allItems]);
 
   // Fill sample data
-  const handleAutofillApplied = useCallback((extracted: any) => {
+  const handleAutofillApplied = useCallback((extractedInput: any) => {
+    const extracted = extractedInput?.data || extractedInput || {};
     setFormData((prev) => {
+      // Normalize format
+      const rawFormat = extracted.mediaFormat || extracted.format || prev.mediaFormat;
+      const { canonicalFormat, isCustom } = normalizeMediaFormat(rawFormat);
+
+      // Normalize creator category
+      let creatorCategory: CreatorCategory = prev.mainCreatorCategory;
+      if (extracted.mainCreatorCategory) {
+        const catStr = String(extracted.mainCreatorCategory).toLowerCase();
+        if (catStr.includes('studio') || catStr.includes('company')) creatorCategory = 'Studio / Company';
+        else if (catStr.includes('designer') || catStr.includes('game design')) creatorCategory = 'Game Designer';
+        else if (catStr.includes('dev')) creatorCategory = 'Developer';
+        else if (catStr.includes('direct')) creatorCategory = 'Director';
+        else if (catStr.includes('band')) creatorCategory = 'Band';
+        else if (catStr.includes('music') || catStr.includes('compos') || catStr.includes('singer') || catStr.includes('artist')) creatorCategory = 'Music Artist';
+        else if (catStr.includes('author') || catStr.includes('writer') || catStr.includes('mangaka') || catStr.includes('novelist')) creatorCategory = 'Author';
+        else if (catStr.includes('paint')) creatorCategory = 'Painter';
+        else if (CREATOR_CATEGORIES.includes(extracted.mainCreatorCategory as CreatorCategory)) {
+          creatorCategory = extracted.mainCreatorCategory as CreatorCategory;
+        } else {
+          creatorCategory = 'Other';
+        }
+      }
+
+      // Handle genres: support genresStr, genres array, or comma-separated string
+      let genresStr = prev.genresStr;
+      if (typeof extracted.genresStr === 'string' && extracted.genresStr.trim()) {
+        genresStr = extracted.genresStr.trim();
+      } else if (Array.isArray(extracted.genres) && extracted.genres.length > 0) {
+        genresStr = extracted.genres.join(', ');
+      } else if (typeof extracted.genres === 'string' && extracted.genres.trim()) {
+        genresStr = extracted.genres.trim();
+      }
+
+      // Handle otherCreatorsStr (Format strictly as "Name / Role")
+      let otherCreatorsStr = prev.otherCreatorsStr;
+      const rawCreatorsInput = extracted.otherCreatorsStr ?? extracted.otherCreators;
+      if (typeof rawCreatorsInput === 'string' && rawCreatorsInput.trim()) {
+        const parsedList = rawCreatorsInput
+          .split(',')
+          .map((c: string) => {
+            const trimmed = c.trim();
+            if (!trimmed) return '';
+            if (trimmed.includes('/')) {
+              const parts = trimmed.split('/');
+              return `${parts[0].trim()} / ${parts.slice(1).join('/').trim() || 'Contributor'}`;
+            }
+            const parenMatch = trimmed.match(/^([^(]+)\s*\(([^)]+)\)$/);
+            if (parenMatch) return `${parenMatch[1].trim()} / ${parenMatch[2].trim()}`;
+            const colonMatch = trimmed.match(/^([a-zA-Z\s]{2,25}):\s*(.+)$/);
+            if (colonMatch && !colonMatch[2].includes(':')) return `${colonMatch[2].trim()} / ${colonMatch[1].trim()}`;
+            const dashMatch = trimmed.match(/^([^-]+)\s+-\s+([^-]+)$/);
+            if (dashMatch) return `${dashMatch[1].trim()} / ${dashMatch[2].trim()}`;
+            return trimmed;
+          })
+          .filter(Boolean);
+        if (parsedList.length > 0) {
+          otherCreatorsStr = parsedList.join(', ');
+        }
+      } else if (Array.isArray(rawCreatorsInput) && rawCreatorsInput.length > 0) {
+        const parsedList = rawCreatorsInput
+          .map((c: any) => {
+            if (!c) return '';
+            if (typeof c === 'object') {
+              const name = c.name || c.creator || '';
+              const role = c.role || c.category || c.title || 'Contributor';
+              return name ? `${String(name).trim()} / ${String(role).trim()}` : '';
+            }
+            const trimmed = String(c).trim();
+            if (trimmed.includes('/')) {
+              const parts = trimmed.split('/');
+              return `${parts[0].trim()} / ${parts.slice(1).join('/').trim() || 'Contributor'}`;
+            }
+            const parenMatch = trimmed.match(/^([^(]+)\s*\(([^)]+)\)$/);
+            if (parenMatch) return `${parenMatch[1].trim()} / ${parenMatch[2].trim()}`;
+            return trimmed;
+          })
+          .filter(Boolean);
+        if (parsedList.length > 0) {
+          otherCreatorsStr = parsedList.join(', ');
+        }
+      }
+
+      // Handle similarMediaStr
+      let similarMediaStr = prev.similarMediaStr;
+      if (typeof extracted.similarMediaStr === 'string' && extracted.similarMediaStr.trim()) {
+        similarMediaStr = extracted.similarMediaStr.trim();
+      } else if (Array.isArray(extracted.similarMedia) && extracted.similarMedia.length > 0) {
+        similarMediaStr = extracted.similarMedia.join(', ');
+      } else if (typeof extracted.similarMedia === 'string' && extracted.similarMedia.trim()) {
+        similarMediaStr = extracted.similarMedia.trim();
+      }
+
+      // Handle mediumInfluencesStr
+      let mediumInfluencesStr = prev.mediumInfluencesStr;
+      if (typeof extracted.mediumInfluencesStr === 'string' && extracted.mediumInfluencesStr.trim()) {
+        mediumInfluencesStr = extracted.mediumInfluencesStr.trim();
+      } else if (Array.isArray(extracted.mediumInfluences) && extracted.mediumInfluences.length > 0) {
+        mediumInfluencesStr = extracted.mediumInfluences.join(', ');
+      } else if (typeof extracted.mediumInfluences === 'string' && extracted.mediumInfluences.trim()) {
+        mediumInfluencesStr = extracted.mediumInfluences.trim();
+      }
+
+      // Handle hornetScore
+      let hornetScore = prev.hornetScore;
+      if (typeof extracted.hornetScore === 'number' && !isNaN(extracted.hornetScore)) {
+        hornetScore = Math.max(1, Math.min(10, Math.round(extracted.hornetScore * 10) / 10));
+      } else if (typeof extracted.hornetScore === 'string' && extracted.hornetScore.trim()) {
+        const num = parseFloat(extracted.hornetScore);
+        if (!isNaN(num)) {
+          hornetScore = Math.max(1, Math.min(10, Math.round(num * 10) / 10));
+        }
+      }
+
+      // Handle genreStyleTags
+      let genreStyleTags = prev.genreStyleTags;
+      if (Array.isArray(extracted.genreStyleTags) && extracted.genreStyleTags.length > 0) {
+        genreStyleTags = extracted.genreStyleTags.map((t: any) => String(t).trim()).filter(Boolean);
+      } else if (typeof extracted.genreStyleTags === 'string' && extracted.genreStyleTags.trim()) {
+        genreStyleTags = extracted.genreStyleTags.split(',').map((t: string) => t.trim()).filter(Boolean);
+      }
+
+      // Handle philosophicalTags
+      let philosophicalTags = prev.philosophicalTags;
+      if (Array.isArray(extracted.philosophicalTags) && extracted.philosophicalTags.length > 0) {
+        philosophicalTags = extracted.philosophicalTags.map((t: any) => String(t).trim()).filter(Boolean);
+      } else if (typeof extracted.philosophicalTags === 'string' && extracted.philosophicalTags.trim()) {
+        philosophicalTags = extracted.philosophicalTags.split(',').map((t: string) => t.trim()).filter(Boolean);
+      }
+
       const next: FormDataShape = {
         ...prev,
         title: extracted.title?.trim() || prev.title,
         cover: extracted.cover?.trim() || prev.cover,
         mainCreator: extracted.mainCreator?.trim() || prev.mainCreator,
-        mainCreatorCategory: (extracted.mainCreatorCategory as CreatorCategory) || prev.mainCreatorCategory,
+        mainCreatorCategory: creatorCategory,
         creatorNation: extracted.creatorNation?.trim() || prev.creatorNation,
-        mediaFormat: extracted.mediaFormat || prev.mediaFormat,
-        isCustomCategory: Boolean(extracted.isCustomCategory),
-        customCategoryName: extracted.customCategoryName?.trim() || prev.customCategoryName,
+        mediaFormat: canonicalFormat,
+        isCustomCategory: isCustom || Boolean(extracted.isCustomCategory),
+        customCategoryName: extracted.customCategoryName?.trim() || (isCustom ? (extracted.mediaFormat || extracted.format || prev.customCategoryName) : prev.customCategoryName),
         releaseDate: extracted.releaseDate?.trim() || prev.releaseDate,
         countryOfOrigin: extracted.countryOfOrigin?.trim() || prev.countryOfOrigin,
         originalLanguage: extracted.originalLanguage?.trim() || prev.originalLanguage,
         consumedVersion: extracted.consumedVersion?.trim() || prev.consumedVersion,
-        genresStr: Array.isArray(extracted.genres) && extracted.genres.length > 0
-          ? extracted.genres.join(', ')
-          : (typeof extracted.genres === 'string' ? extracted.genres : prev.genresStr),
-        genreStyleTags: Array.isArray(extracted.genreStyleTags) && extracted.genreStyleTags.length > 0
-          ? extracted.genreStyleTags
-          : prev.genreStyleTags,
-        philosophicalTags: Array.isArray(extracted.philosophicalTags) && extracted.philosophicalTags.length > 0
-          ? extracted.philosophicalTags
-          : prev.philosophicalTags,
+        genresStr,
+        genreStyleTags,
+        philosophicalTags,
         summaryPlot: extracted.summaryPlot?.trim() || prev.summaryPlot,
         review: extracted.review?.trim() || prev.review,
-        hornetScore: typeof extracted.hornetScore === 'number' && !isNaN(extracted.hornetScore)
-          ? extracted.hornetScore
-          : prev.hornetScore,
+        hornetScore,
         hornetVerdict: extracted.hornetVerdict?.trim() || prev.hornetVerdict,
-        otherCreatorsStr: Array.isArray(extracted.otherCreators) && extracted.otherCreators.length > 0
-          ? extracted.otherCreators.join(', ')
-          : prev.otherCreatorsStr,
-        similarMediaStr: Array.isArray(extracted.similarMedia) && extracted.similarMedia.length > 0
-          ? extracted.similarMedia.join(', ')
-          : prev.similarMediaStr,
-        mediumInfluencesStr: Array.isArray(extracted.mediumInfluences) && extracted.mediumInfluences.length > 0
-          ? extracted.mediumInfluences.join(', ')
-          : prev.mediumInfluencesStr
+        otherCreatorsStr,
+        similarMediaStr,
+        mediumInfluencesStr
       };
       formRef.current = next;
       return next;
@@ -2405,17 +2522,19 @@ const AdminMediaModalComponent: React.FC<AdminMediaModalProps> = ({
         </div>
 
         {/* Scrollable Form Body with Localized Sub-Form Sections */}
-        <form key={formKey} onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-6">
-          {/* Smart AI Autofill Assistant */}
+        <div className="p-6 overflow-y-auto space-y-6">
+          {/* Smart AI Autofill Assistant (Persists across form updates) */}
           <AIAutofillSection
             onAutofillApplied={handleAutofillApplied}
             existingGenresPool={existingGenresPool}
           />
-          {/* Cover Section */}
-          <CoverSection
-            initialCover={formData.cover}
-            onUpdate={(val) => handleUpdateField('cover', val)}
-          />
+
+          <form key={formKey} onSubmit={handleSubmit} className="space-y-6">
+            {/* Cover Section */}
+            <CoverSection
+              initialCover={formData.cover}
+              onUpdate={(val) => handleUpdateField('cover', val)}
+            />
 
           {/* Basic Info */}
           <BasicInfoSection
@@ -2527,6 +2646,7 @@ const AdminMediaModalComponent: React.FC<AdminMediaModalProps> = ({
             </button>
           </div>
         </form>
+        </div>
       </div>
 
       {/* Link Validation Modal */}

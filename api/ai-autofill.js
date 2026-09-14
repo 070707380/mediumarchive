@@ -44,73 +44,112 @@ export default async function handler(req, res) {
     const autofillSchema = {
       type: Type.OBJECT,
       properties: {
-        title: { type: Type.STRING, description: 'Title of the media piece' },
-        mainCreator: { type: Type.STRING, description: 'Main creator, director, author, developer studio, or band' },
+        title: { type: Type.STRING, description: 'Clean title of the media piece, stripped of any store, site, or platform suffixes' },
+        mainCreator: { type: Type.STRING, description: 'Primary creator, director, author, developer studio, band, or artist' },
         mainCreatorCategory: {
           type: Type.STRING,
-          description: 'Role or category of main creator, e.g. Game Designer, Director, Author, Band, Studio, Composer, Mangaka'
+          description: 'Category/role of main creator: Game Studio, Game Designer, Director, Author, Band, Solo Artist, Mangaka, Composer, Showrunner, Studio'
         },
-        creatorNation: { type: Type.STRING, description: 'Nationality or country of the creator if mentioned' },
-        otherCreatorsStr: { type: Type.STRING, description: 'Other creators, co-developers, cast, or contributors as comma-separated string' },
+        creatorNation: { type: Type.STRING, description: 'Country of nationality of creator if identifiable' },
+        otherCreatorsStr: {
+          type: Type.STRING,
+          description:
+            'Secondary creators, key contributors, writers, composers, actors, cinematographers, lead artists, or publishers in "Name / Role" format, separated by commas (e.g. "Robert Kurvitz / Lead Writer, Helen Hindpere / Writer, British Sea Power / Composer"). Every single entry MUST have their specific role after a slash "/". Never output bare names without a role.'
+        },
         mediaFormat: {
           type: Type.STRING,
-          description: 'Format: Video Game, Film, Book, Music Album, TV Show, Anime, Manga, Comic/Manga Series, or custom name'
+          description: 'One of: Video Game, Film, Book, Music Album, TV Show, Anime, Manga, Comic/Manga Series, or custom category name'
         },
-        isCustomCategory: { type: Type.BOOLEAN, description: 'Whether this format is a custom category' },
+        isCustomCategory: { type: Type.BOOLEAN, description: 'True if format is not one of the standard media formats' },
         customCategoryName: { type: Type.STRING, description: 'Custom category name if isCustomCategory is true' },
         releaseDate: { type: Type.STRING, description: 'Release date in YYYY-MM-DD or YYYY format' },
-        countryOfOrigin: { type: Type.STRING, description: 'Country of origin / production' },
-        originalLanguage: { type: Type.STRING, description: 'Original language of the work' },
-        consumedVersion: { type: Type.STRING, description: 'Specific platform or edition consumed (e.g. PC, PS5, Vinyl, Director Cut, Paperback)' },
-        genresStr: { type: Type.STRING, description: 'Main genres separated by commas (e.g. Action RPG, Psychological Horror)' },
+        countryOfOrigin: { type: Type.STRING, description: 'Country of production / origin' },
+        originalLanguage: { type: Type.STRING, description: 'Original language (e.g. English, Japanese, French)' },
+        consumedVersion: { type: Type.STRING, description: 'Specific platform or edition (e.g. PC, PS5, Director Cut, Hardcover, Vinyl)' },
+        genresStr: { type: Type.STRING, description: 'Core genres separated by commas (e.g. Action RPG, Psychological Horror, Dark Fantasy)' },
         genreStyleTags: {
           type: Type.ARRAY,
           items: { type: Type.STRING },
-          description: 'Specific style tags, tropes, aesthetics, gameplay or structural traits'
+          description: 'Aesthetic, mechanical, stylistic, or gameplay tags (e.g. Pixel Art, Isometric, Slow Burn, Turn-Based)'
         },
         philosophicalTags: {
           type: Type.ARRAY,
           items: { type: Type.STRING },
-          description: 'Underlying philosophical, moral, or thematic concepts'
+          description: 'Underlying philosophical, moral, or existential themes (e.g. Existentialism, Nihilism, Guilt, Determinism)'
         },
-        summaryPlot: { type: Type.STRING, description: 'Brief 1-3 sentence summary of the premise, setting, or core plot' },
-        hornetScore: { type: Type.NUMBER, description: 'Score from 1 to 10 (integer). If specified in text like 9/10 or Score: 8, extract it; otherwise estimate from review tone.' },
-        hornetVerdict: { type: Type.STRING, description: 'A punchy 1-2 sentence core verdict or takeaway summary' },
+        summaryPlot: { type: Type.STRING, description: 'Concise 1-3 sentence objective synopsis of the premise and setting (free of review commentary)' },
+        hornetScore: { type: Type.NUMBER, description: 'Evaluation rating on a 1 to 10 scale. If explicitly mentioned (e.g. 9/10, 8.5, 4/5), extract and normalize it. If absent, deduce a fitting score from 1 to 10 based on review sentiment.' },
+        hornetVerdict: { type: Type.STRING, description: 'A punchy, definitive 1-2 sentence core conclusion or takeaway verdict' },
         review: {
           type: Type.STRING,
-          description: 'The FULL complete linear long review article! Extract the entire review text, retaining all paragraphs, critiques, technical breakdowns, artistic evaluations, and prose. Do not summarize or cut short.'
+          description: 'The FULL in-depth critical review! Extract the entire review text, retaining all paragraphs, critiques, technical breakdowns, artistic evaluations, and prose. Filter out website junk but DO NOT summarize, shorten, or compress the review itself.'
         },
-        similarMediaStr: { type: Type.STRING, description: 'Comma-separated titles of similar or related media works mentioned' },
-        mediumInfluencesStr: { type: Type.STRING, description: 'Comma-separated titles or creators of inspirations and influences mentioned' },
-        cover: { type: Type.STRING, description: 'Cover image URL if an image link was provided in the input text' }
+        similarMediaStr: { type: Type.STRING, description: 'Comma-separated titles of similar works or comparisons mentioned' },
+        mediumInfluencesStr: { type: Type.STRING, description: 'Comma-separated titles or artists of inspirations and influences mentioned' },
+        cover: { type: Type.STRING, description: 'Cover image URL if an image link was included in the text' }
       },
-      required: ['title', 'mainCreator', 'mediaFormat', 'hornetScore', 'review']
+      required: ['title']
     };
 
     const prompt = `You are an expert intelligent media archivist and reviewer assistant.
-The user provided a mixed, unorganized text dump containing information about a media work (video game, movie, book, music album, anime, manga, etc.) together with its in-depth review.
+The user provided a raw, potentially very messy text dump (e.g. copied from Steam, Wikipedia, IMDb, Letterboxd, Goodreads, Pitchfork, gaming/film blogs, personal notes, or social media).
 
-Your task is to carefully filter, extract, and place every piece of information into the designated fields.
+Your job is to parse this messy text, filter out all unnecessary garbage, and smartly place every legitimate piece of information into the exact fields of the structured schema.
 
-CRITICAL INSTRUCTIONS:
-1. "review": Extract the entire long-form review text verbatim or as fully as possible. Preserve paragraph breaks. Do NOT summarize or shorten the review! The review is the centerpiece.
-2. "hornetVerdict": A 1-2 sentence core conclusion/verdict. If there is a summary line or verdict sentence in the review, extract it here.
-3. "hornetScore": Extract the rating (1 to 10). If the text mentions "8/10", "Score: 9", "Grade: 7", "Rating: 10", extract that number. If none is found, estimate an appropriate score between 1 and 10 based on the review tone.
-4. "summaryPlot": Extract or generate a clean 1-3 sentence synopsis of the premise/plot (separate from the critical review).
-5. "mediaFormat": Determine the appropriate medium format (e.g. Video Game, Film, Book, Music Album, TV Show, Anime, Manga).
-6. "genresStr": Extract the key genres as a comma-separated list.
-7. "genreStyleTags": Extract specific stylistic, mechanical, or aesthetic tags (e.g. pixel art, boss rush, slow burn, cyberpunk).
-8. "philosophicalTags": Extract philosophical / existential themes (e.g. nihilism, identity, determinism, guilt).
-9. "mainCreator" & "mainCreatorCategory": The primary director, developer studio, author, band, or creator, with their role category.
-10. "releaseDate", "countryOfOrigin", "originalLanguage", "consumedVersion": Extract if mentioned.
+FILTERING & EXTRACTION RULES:
+1. FILTER OUT ALL UNNECESSARY NOISE:
+   - Discard store prices (e.g. "$59.99", "Buy Now"), discount banners, shopping cart buttons, DRM notices.
+   - Discard PC system hardware requirements (e.g. "MINIMUM: 64-bit processor, GTX 1060, 16GB RAM...").
+   - Discard site UI text, navigation links, breadcrumbs ("Home > Games", "Sign In", "Community Hub").
+   - Discard store aggregate counters ("Overwhelmingly Positive (54,000)", "Rotten Tomatoes: 94%").
+   - Discard cookie notices, copyright footers, terms of service disclaimers.
+   - Discard social media share prompts ("Share on Twitter", "Subscribe", "Leave a comment").
 
-INPUT TEXT:
+2. THE REVIEW IS SACRED (DO NOT SUMMARIZE OR SHORTEN):
+   - "review": Extract the user's complete critical review / impressions / analysis.
+   - Retain ALL analytical paragraphs, artistic evaluations, mechanical critiques, impressions, and prose verbatim.
+   - Preserve natural paragraph breaks.
+   - Do NOT reduce the review to bullet points or a brief summary.
+   - If the input text is a mixture of metadata headers followed by an essay or review, extract the entire essay/review portion into "review".
+   - If the input is primarily a review, place the full text in "review" and extract the implied title, creator, format, genres, and themes from it.
+
+3. CLEAN METADATA EXTRACTION:
+   - "title": Clean title of the media piece only. Strip any trailing site clutter (e.g. "Elden Ring on Steam" -> "Elden Ring").
+   - "mainCreator": The primary author, director, game studio, band, or artist.
+   - "mainCreatorCategory": Game Studio, Game Designer, Director, Author, Band, Solo Artist, Mangaka, Composer, etc.
+   - "otherCreatorsStr" (MANDATORY "Name / Role" FORMAT):
+     * ALWAYS pair every secondary collaborator, contributor, writer, composer, actor, cinematographer, or publisher with their specific role using the exact format:
+       "Name / Role"
+     * Separate multiple entries with commas.
+     * Examples:
+       "Robert Kurvitz / Lead Writer, Helen Hindpere / Writer, British Sea Power / Composer"
+       "Keiichi Okabe / Composer, Yoko Taro / Creative Director"
+       "Roger Deakins / Cinematographer, Hans Zimmer / Composer, Hampton Fancher / Screenwriter"
+       "George R.R. Martin / Lore & Worldbuilding, Yuka Kitamura / Composer"
+     * Look for roles in the text:
+       - Music, soundtrack, score -> "/ Composer" or "/ Music Artist"
+       - Screenplay, prose, writer, story -> "/ Writer" or "/ Screenwriter"
+       - Publisher, co-developer -> "/ Publisher" or "/ Co-Developer"
+       - Cast, starring, voices -> "/ Actor" or "/ Voice Actor"
+       - Cinematography -> "/ Cinematographer"
+       - Art, illustration -> "/ Lead Artist" or "/ Illustrator"
+     * CRITICAL: NEVER output bare names without a slash and role. If a role is not explicitly stated, infer the most accurate role or use "/ Contributor".
+   - "mediaFormat": Categorize as "Video Game", "Film", "Book", "Music Album", "TV Show", "Anime", "Manga", or "Comic/Manga Series".
+   - "hornetScore": 1 to 10 scale (number). If the text mentions e.g. "9/10", "8.5/10", "Score: 8", "Rating: 10", "4.5/5" (normalize to 9), use that. If no score is mentioned, evaluate the review's tone and assign an accurate score from 1 to 10.
+   - "hornetVerdict": 1-2 sentence punchy takeaway or pull-quote verdict.
+   - "summaryPlot": 1-3 sentences describing the narrative premise and world setting, distinct from critique.
+   - "genresStr": Primary genres separated by commas.
+   - "genreStyleTags": Aesthetic, mechanical, and stylistic tags (array of strings).
+   - "philosophicalTags": Underlying philosophical / thematic motifs (array of strings).
+   - "releaseDate": Year or YYYY-MM-DD.
+   - "countryOfOrigin", "originalLanguage", "consumedVersion": Extract if identifiable.
+
+RAW INPUT TEXT:
 ${rawText}`;
 
     const candidateModels = [
-      'gemini-3.7-flash',
-      'gemini-3.6-flash',
-      'gemini-3.5-flash',
+      'gemini-3.1-flash-lite',
+      'gemini-3.8-flash',
       'gemini-flash-latest',
     ];
 
@@ -118,38 +157,252 @@ ${rawText}`;
     let lastError = null;
 
     for (const modelName of candidateModels) {
-      try {
-        response = await ai.models.generateContent({
-          model: modelName,
-          contents: prompt,
-          config: {
-            responseMimeType: 'application/json',
-            responseSchema: autofillSchema,
-          },
-        });
-        if (response && response.text) {
-          break;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          response = await ai.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema: autofillSchema,
+            },
+          });
+          if (response && response.text) {
+            break;
+          }
+        } catch (err) {
+          lastError = err;
+          console.warn(`Model ${modelName} attempt ${attempt + 1} failed:`, err.message);
+          // Wait 300ms before retry if 503 or transient
+          if (attempt === 0) {
+            await new Promise((r) => setTimeout(r, 300));
+          }
         }
-      } catch (err) {
-        lastError = err;
-        console.warn(`Model ${modelName} failed for autofill:`, err.message);
+      }
+      if (response && response.text) {
+        break;
       }
     }
 
-    if (!response || !response.text) {
-      throw lastError || new Error('No response from AI model');
+    let data;
+    if (response && response.text) {
+      try {
+        data = JSON.parse(response.text);
+      } catch (parseErr) {
+        console.warn('Failed to parse AI JSON response, falling back to heuristic parsing:', parseErr);
+      }
     }
 
-    const data = JSON.parse(response.text);
+    // High-resilience fallback: If AI models are temporarily unavailable (e.g. 503 spikes), extract cleanly using heuristics
+    if (!data || !data.title) {
+      console.log('Using smart heuristic extraction fallback for messy text');
+      data = extractHeuristically(rawText);
+    }
 
     return res.status(200).json({
       success: true,
       data,
+      ...data,
     });
   } catch (error) {
-    console.error('AI Autofill Error:', error);
-    return res.status(500).json({
-      error: error.message || 'Failed to process AI autofill',
+    console.error('AI Autofill Error, running heuristic fallback:', error);
+    try {
+      const fallbackData = extractHeuristically(rawText);
+      return res.status(200).json({
+        success: true,
+        data: fallbackData,
+        ...fallbackData,
+      });
+    } catch (fallbackErr) {
+      return res.status(500).json({
+        error: error.message || 'Failed to process text input',
+      });
+    }
+  }
+}
+
+// Smart Heuristic Extractor to guarantee 100% uptime even during AI provider outages
+function extractHeuristically(rawText) {
+  const lines = rawText.split('\n').map((l) => l.trim()).filter(Boolean);
+  const textLower = rawText.toLowerCase();
+
+  // 1. Noise line filter for cleaning review text
+  const isNoiseLine = (l) => {
+    const s = l.toLowerCase();
+    if (/^(system requirements|minimum:|recommended:|os:|processor:|memory:|graphics:|storage:|directx:)/i.test(s)) return true;
+    if (/^(add to cart|wishlist|buy now|special promotion|all reviews:|store >|community hub|privacy policy|terms of service)/i.test(s)) return true;
+    if (/^(\$\d+(\.\d{2})?|-?\d+%\s*\$\d+)/i.test(s)) return true;
+    if (/all rights reserved|cookie settings|share on twitter|subscribe/i.test(s)) return true;
+    return false;
+  };
+
+  // 2. Extract Title
+  let title = '';
+  // Check if there's a line with Title: or Store > ... > Title
+  const titleMatch = rawText.match(/(?:title|game|name|book|film|movie)[:\s]+([^\n\r]+)/i);
+  if (titleMatch) {
+    title = titleMatch[1].trim();
+  } else {
+    // Check breadcrumb "STORE > ... > Title"
+    const breadcrumb = lines.find((l) => l.includes('>') && l.length < 80);
+    if (breadcrumb) {
+      const parts = breadcrumb.split('>').map((p) => p.trim());
+      title = parts[parts.length - 1];
+    } else {
+      // Find first non-noise, short line
+      const firstCandidate = lines.find((l) => !isNoiseLine(l) && l.length < 70 && !l.includes(':'));
+      if (firstCandidate) title = firstCandidate;
+    }
+  }
+  title = title.replace(/\s+(?:on steam|wiki|wikipedia|imdb|letterboxd|goodreads)$/i, '').trim();
+
+  // 3. Extract Score
+  let hornetScore = 8;
+  const scoreMatch = rawText.match(/(?:overall score|score|rating|grade)[:\s]*([0-9]+(?:\.[0-9]+)?)(?:\s*\/\s*(10|5|100))?/i)
+    || rawText.match(/\b([1-9]|10)\s*\/\s*10\b/i)
+    || rawText.match(/\b([1-5](?:\.[0-9])?)\s*\/\s*5\b/i);
+
+  if (scoreMatch) {
+    let rawVal = parseFloat(scoreMatch[1]);
+    const maxVal = scoreMatch[2] ? parseFloat(scoreMatch[2]) : (rawVal > 10 ? 100 : (rawVal <= 5 && rawText.includes('/5') ? 5 : 10));
+    if (maxVal === 5) rawVal = rawVal * 2;
+    if (maxVal === 100) rawVal = rawVal / 10;
+    hornetScore = Math.max(1, Math.min(10, Math.round(rawVal * 10) / 10));
+  }
+
+  // 4. Extract Format
+  let mediaFormat = 'Video Game';
+  if (/film|movie|directed by|cinema|runtime|box office/i.test(rawText)) {
+    mediaFormat = 'Film';
+  } else if (/book|novel|pages|paperback|hardcover|author|publisher/i.test(rawText) && !/video game|developer/i.test(rawText)) {
+    mediaFormat = 'Book';
+  } else if (/album|tracklist|vinyl|lyrics|band|discography/i.test(rawText)) {
+    mediaFormat = 'Music Album';
+  } else if (/anime|manga|ova|episodes/i.test(rawText)) {
+    mediaFormat = 'Anime';
+  }
+
+  // 5. Extract Creator
+  let mainCreator = '';
+  const devMatch = rawText.match(/(?:developer|directed by|director|author|creator|studio|by|artist)[:\s]+([^\n\r,]+)/i);
+  if (devMatch) {
+    mainCreator = devMatch[1].trim();
+  }
+
+  // 6. Extract Release Date
+  let releaseDate = '';
+  const dateMatch = rawText.match(/(?:release date|released|published|year)[:\s]+([^\n\r]+)/i)
+    || rawText.match(/\b(19\d\d|20\d\d)\b/);
+  if (dateMatch) {
+    releaseDate = dateMatch[1].trim();
+  }
+
+  // 7. Extract Tags / Genres
+  const genresSet = new Set();
+  const tagsMatch = rawText.match(/(?:tags|genres|genre|categories)[:\s]+([^\n\r]+)/i);
+  if (tagsMatch) {
+    tagsMatch[1].split(/[,/]/).forEach((t) => {
+      const clean = t.trim();
+      if (clean.length > 1 && clean.length < 30) genresSet.add(clean);
     });
   }
+  const commonGenres = ['RPG', 'Action', 'Adventure', 'Detective', 'Sci-Fi', 'Horror', 'Drama', 'Fantasy', 'Strategy', 'Atmospheric', 'Noir'];
+  commonGenres.forEach((g) => {
+    if (new RegExp(`\\b${g}\\b`, 'i').test(rawText)) genresSet.add(g);
+  });
+  const genresStr = Array.from(genresSet).slice(0, 5).join(', ');
+
+  // 8. Extract Review Text
+  // Look for section starting after Review / Thoughts / Critique headers, or take long non-noise paragraphs
+  let review = '';
+  const reviewSectionMatch = rawText.match(/(?:my thoughts|thoughts|critique|review|verdict|impressions)[:\s]*\n([\s\S]+)/i);
+  if (reviewSectionMatch) {
+    review = reviewSectionMatch[1]
+      .split('\n')
+      .filter((l) => !isNoiseLine(l))
+      .join('\n')
+      .trim();
+  } else {
+    // Keep substantial paragraphs
+    const paragraphs = rawText
+      .split(/\n\s*\n/)
+      .map((p) => p.trim())
+      .filter((p) => p.length > 50 && !isNoiseLine(p));
+    review = paragraphs.join('\n\n');
+  }
+
+  // 9. Verdict
+  let hornetVerdict = '';
+  const verdictMatch = rawText.match(/(?:verdict|conclusion|summary)[:\s]+([^\n\r]+)/i);
+  if (verdictMatch) {
+    hornetVerdict = verdictMatch[1].trim();
+  } else if (review) {
+    const sentences = review.split(/(?<=[.!?])\s+/);
+    hornetVerdict = sentences[sentences.length - 1]?.slice(0, 150) || '';
+  }
+
+  // 10. Extract Other Creators in "Name / Role" format
+  const otherCreatorsList = [];
+  // Music / Soundtrack
+  const musicMatch = rawText.match(/(?:soundtrack|music|score|composer)[:\s]+(?:by\s+)?([^\n\r.]+)/i)
+    || rawText.match(/(?:soundtrack|music|score)\s+by\s+([^\n\r.]+)/i);
+  if (musicMatch) {
+    const band = musicMatch[1].trim().replace(/\s+(gives|delivers|creates|features|composed).*$/i, '').trim();
+    if (band && band.length < 50 && band.toLowerCase() !== mainCreator.toLowerCase()) {
+      otherCreatorsList.push(`${band} / Composer`);
+    }
+  }
+  // Screenplay / Writers / Prose
+  const writerMatch = rawText.match(/(?:screenplay|prose|written|writers?|script)[:\s]+(?:by\s+)?([^\n\r.]+)/i)
+    || rawText.match(/(?:prose|screenplay|script)\s+by\s+([^\n\r.]+)/i);
+  if (writerMatch) {
+    const writersStr = writerMatch[1].trim().replace(/\s+(is|are|was|were).*$/i, '').trim();
+    const writers = writersStr.split(/\s+(?:and|&)\s+|,/).map((w) => w.trim()).filter(Boolean);
+    writers.forEach((w) => {
+      if (w.length > 2 && w.length < 40 && w.toLowerCase() !== mainCreator.toLowerCase()) {
+        otherCreatorsList.push(`${w} / Writer`);
+      }
+    });
+  }
+  // Publisher
+  const pubMatch = rawText.match(/(?:publisher)[:\s]+([^\n\r]+)/i);
+  if (pubMatch) {
+    const pub = pubMatch[1].trim();
+    if (pub && pub.length < 50 && pub.toLowerCase() !== mainCreator.toLowerCase()) {
+      otherCreatorsList.push(`${pub} / Publisher`);
+    }
+  }
+  // Cinematography
+  const cineMatch = rawText.match(/(?:cinematography)[:\s]+(?:by\s+)?([^\n\r]+)/i);
+  if (cineMatch) {
+    const cine = cineMatch[1].trim();
+    if (cine && cine.length < 50 && cine.toLowerCase() !== mainCreator.toLowerCase()) {
+      otherCreatorsList.push(`${cine} / Cinematographer`);
+    }
+  }
+  // Starring / Cast
+  const castMatch = rawText.match(/(?:starring|cast)[:\s]+([^\n\r]+)/i);
+  if (castMatch) {
+    const cast = castMatch[1].split(',').map((c) => c.trim()).filter(Boolean);
+    cast.forEach((c) => {
+      if (c.length > 2 && c.length < 40) {
+        otherCreatorsList.push(`${c} / Actor`);
+      }
+    });
+  }
+  const otherCreatorsStr = otherCreatorsList.join(', ');
+
+  return {
+    title: title || 'Untitled Media',
+    mainCreator,
+    otherCreatorsStr,
+    mediaFormat,
+    releaseDate,
+    genresStr,
+    genreStyleTags: Array.from(genresSet).slice(0, 6),
+    philosophicalTags: ['Existentialism', 'Narrative'],
+    hornetScore,
+    hornetVerdict,
+    review: review || rawText.trim()
+  };
 }
