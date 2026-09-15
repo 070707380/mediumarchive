@@ -1,4 +1,4 @@
-import { MediaItem, getScoreLevelInfo } from '../types';
+import { MediaItem, getScoreLevelInfo, getItemReview } from '../types';
 import { extractReleaseYear } from './dateUtils';
 import { formatImageUrl, getProxyImageUrl } from './imageUtils';
 
@@ -161,127 +161,123 @@ async function loadCanvasImage(rawUrl: string): Promise<HTMLImageElement | null>
 }
 
 /**
- * Extracts clean full review text, verdict, pros, and cons.
+ * Extracts clean full review text, pros, and cons (no AI summary or score verdict).
  */
 export function getFullReviewText(item: MediaItem): {
-  verdict: string;
   body: string;
   pros: string[];
   cons: string[];
 } {
-  const verdict = (item.hornetVerdict || '').trim();
-  let body = (item.review || '').trim();
-
-  // If review body is sparse, supplement with summary plot
-  if (!body && item.summaryPlot) {
-    body = item.summaryPlot.trim();
-  } else if (body && item.summaryPlot && body.length < 180 && !body.includes(item.summaryPlot)) {
-    body = `${item.summaryPlot.trim()}\n\n${body}`;
-  }
-
+  const body = (getItemReview(item) || '').trim();
   const pros = Array.isArray(item.pros) ? item.pros.filter(Boolean) : [];
   const cons = Array.isArray(item.cons) ? item.cons.filter(Boolean) : [];
 
-  return { verdict, body, pros, cons };
+  return { body, pros, cons };
 }
 
 /**
- * Splits text cleanly into balanced segments without breaking sentences or words.
+ * Splits text into balanced segments for slides, keeping sentences together as a continuous wall of text.
  */
 function splitTextIntoBalancedParts(text: string, numParts: number): string[] {
-  if (numParts <= 1) return [text];
+  if (numParts <= 1) return [text.trim()];
 
-  const rawParagraphs = text
-    .split(/\n+/)
-    .map((p) => p.trim())
-    .filter(Boolean);
+  // Normalize single linebreaks inside paragraphs into spaces to maintain a solid wall of text
+  const cleanText = text
+    .replace(/([^\n])\n([^\n])/g, '$1 $2')
+    .replace(/[ \t]+/g, ' ')
+    .trim();
 
-  const units: string[] = [];
-  rawParagraphs.forEach((p) => {
-    if (p.length > 280 || rawParagraphs.length < numParts) {
-      const sentences = p.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g) || [p];
-      sentences.forEach((s) => {
-        const trimmed = s.trim();
-        if (trimmed) units.push(trimmed);
-      });
-    } else {
-      units.push(p);
+  if (!cleanText) return [text];
+
+  const totalLen = cleanText.length;
+  const targetPerPart = totalLen / numParts;
+  const cuts: number[] = [0];
+
+  let currentStart = 0;
+  for (let part = 1; part < numParts; part++) {
+    const idealCut = Math.round(part * targetPerPart);
+
+    // Search range around idealCut
+    const minSearch = Math.max(currentStart + 40, Math.round(idealCut - targetPerPart * 0.4));
+    const maxSearch = Math.min(totalLen - (numParts - part) * 40, Math.round(idealCut + targetPerPart * 0.4));
+
+    let bestCut = -1;
+    let bestDist = Infinity;
+
+    if (maxSearch > minSearch) {
+      const windowStr = cleanText.substring(minSearch, maxSearch);
+
+      // Priority 1: Paragraph break (\n\n)
+      const paraRegex = /\n\s*\n/g;
+      let pMatch;
+      while ((pMatch = paraRegex.exec(windowStr)) !== null) {
+        const candidate = minSearch + pMatch.index + pMatch[0].length;
+        const dist = Math.abs(candidate - idealCut);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestCut = candidate;
+        }
+      }
+
+      // Priority 2: Sentence end followed by space or newline
+      if (bestCut === -1) {
+        const sentRegex = /[.!?]["']?\s+/g;
+        let sMatch;
+        while ((sMatch = sentRegex.exec(windowStr)) !== null) {
+          const candidate = minSearch + sMatch.index + sMatch[0].length;
+          const dist = Math.abs(candidate - idealCut);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestCut = candidate;
+          }
+        }
+      }
+
+      // Priority 3: Word boundary (whitespace)
+      if (bestCut === -1) {
+        const wordRegex = /\s+/g;
+        let wMatch;
+        while ((wMatch = wordRegex.exec(windowStr)) !== null) {
+          const candidate = minSearch + wMatch.index + wMatch[0].length;
+          const dist = Math.abs(candidate - idealCut);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestCut = candidate;
+          }
+        }
+      }
     }
-  });
 
-  if (units.length <= numParts) {
-    const result: string[] = [];
-    for (let i = 0; i < numParts; i++) {
-      if (units[i]) result.push(units[i]);
+    // Fallback: nearest space near idealCut or exact idealCut
+    if (bestCut === -1 || bestCut <= currentStart) {
+      const fallbackSpace = cleanText.indexOf(' ', idealCut);
+      if (fallbackSpace !== -1 && fallbackSpace < totalLen - 20) {
+        bestCut = fallbackSpace + 1;
+      } else {
+        bestCut = Math.min(totalLen - (numParts - part) * 20, idealCut);
+      }
     }
-    return result.length > 0 ? result : [text];
+
+    cuts.push(bestCut);
+    currentStart = bestCut;
   }
-
-  const totalLength = units.reduce((sum, u) => sum + u.length, 0);
-  const targetPerPart = totalLength / numParts;
+  cuts.push(totalLen);
 
   const parts: string[] = [];
-  let currentPartUnits: string[] = [];
-  let currentLen = 0;
-
-  for (let i = 0; i < units.length; i++) {
-    const unit = units[i];
-    const remainingUnits = units.length - i;
-    const remainingPartsNeeded = numParts - parts.length;
-
-    if (remainingUnits <= remainingPartsNeeded - 1 && currentPartUnits.length > 0) {
-      parts.push(currentPartUnits.join('\n\n'));
-      currentPartUnits = [unit];
-      currentLen = unit.length;
-      continue;
-    }
-
-    const wouldBeLen = currentLen + unit.length;
-    if (
-      parts.length < numParts - 1 &&
-      currentPartUnits.length > 0 &&
-      Math.abs(wouldBeLen - targetPerPart) > Math.abs(currentLen - targetPerPart) &&
-      currentLen >= targetPerPart * 0.65
-    ) {
-      parts.push(currentPartUnits.join('\n\n'));
-      currentPartUnits = [unit];
-      currentLen = unit.length;
-    } else {
-      currentPartUnits.push(unit);
-      currentLen += unit.length;
+  for (let i = 0; i < cuts.length - 1; i++) {
+    const seg = cleanText.substring(cuts[i], cuts[i + 1]).trim();
+    if (seg) {
+      parts.push(seg);
     }
   }
 
-  if (currentPartUnits.length > 0) {
-    parts.push(currentPartUnits.join('\n\n'));
-  }
-
-  // Ensure parts count is exactly numParts
-  while (parts.length < numParts) {
-    let longestIdx = 0;
-    for (let i = 1; i < parts.length; i++) {
-      if (parts[i].length > parts[longestIdx].length) longestIdx = i;
-    }
-    const longest = parts[longestIdx];
-    const sentences = longest.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g) || [longest];
-    if (sentences.length >= 2) {
-      const mid = Math.ceil(sentences.length / 2);
-      const partA = sentences.slice(0, mid).join(' ').trim();
-      const partB = sentences.slice(mid).join(' ').trim();
-      parts.splice(longestIdx, 1, partA, partB);
-    } else {
-      break;
-    }
-  }
-
-  return parts;
+  return parts.length > 0 ? parts : [cleanText];
 }
 
 /**
  * Prepares the review slides divided strictly across 2 to 4 photos.
  */
 function prepareReviewSlides(reviewData: {
-  verdict: string;
   body: string;
   pros: string[];
   cons: string[];
@@ -291,7 +287,6 @@ function prepareReviewSlides(reviewData: {
   // If text is empty or minimal, build structured review narrative
   if (!text) {
     const pieces: string[] = [];
-    if (reviewData.verdict) pieces.push(reviewData.verdict);
     if (reviewData.pros.length > 0) {
       pieces.push(`Key Strengths:\n• ${reviewData.pros.join('\n• ')}`);
     }
@@ -868,19 +863,19 @@ function solveReviewSlideTypography(
 ): TypographySolution {
   if (paragraphs.length === 0) {
     return {
-      fontSize: 26,
-      lineHeight: 44,
-      paraGap: 24,
+      fontSize: 24,
+      lineHeight: 36,
+      paraGap: 14,
       linesByPara: [],
       totalHeight: 0,
       verticalOffset: 0,
     };
   }
 
-  // Iteratively solve from large bold editorial size down to clean compact size
-  for (let fs = 35; fs >= 18; fs--) {
-    const lh = Math.round(fs * 1.62);
-    const pg = Math.round(fs * 0.88);
+  // Iteratively solve from readable editorial size down to compact size
+  for (let fs = 30; fs >= 17; fs--) {
+    const lh = Math.round(fs * 1.46);
+    const pg = Math.round(fs * 0.45);
     ctx.font = `${fs}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif`;
 
     const linesByPara: string[][] = [];
@@ -894,36 +889,25 @@ function solveReviewSlideTypography(
 
     const textHeight = totalLines * lh + (paragraphs.length - 1) * pg;
 
-    if (textHeight <= availableHeight || fs === 18) {
-      const remaining = Math.max(0, availableHeight - textHeight);
-
-      // Expand paragraph gap slightly if there is surplus space
-      const extraGap =
-        paragraphs.length > 1
-          ? Math.min(Math.round(fs * 0.55), Math.floor((remaining * 0.28) / (paragraphs.length - 1)))
-          : 0;
-
-      const adjustedParaGap = pg + extraGap;
-      const finalHeight = totalLines * lh + (paragraphs.length - 1) * adjustedParaGap;
-
-      // Golden ratio centering offset to balance top and bottom margins
-      const verticalOffset = Math.max(0, Math.floor((availableHeight - finalHeight) * 0.38));
+    if (textHeight <= availableHeight || fs === 17) {
+      // Gentle centering offset without inflating paragraph gaps
+      const verticalOffset = Math.max(0, Math.floor((availableHeight - textHeight) * 0.32));
 
       return {
         fontSize: fs,
         lineHeight: lh,
-        paraGap: adjustedParaGap,
+        paraGap: pg,
         linesByPara,
-        totalHeight: finalHeight,
+        totalHeight: textHeight,
         verticalOffset,
       };
     }
   }
 
   return {
-    fontSize: 18,
-    lineHeight: 28,
-    paraGap: 16,
+    fontSize: 17,
+    lineHeight: 25,
+    paraGap: 10,
     linesByPara: paragraphs.map((p) => wrapText(ctx, p, maxWidth)),
     totalHeight: availableHeight,
     verticalOffset: 0,
@@ -936,7 +920,7 @@ function solveReviewSlideTypography(
  */
 function computeAdaptiveSlideHeight(
   parts: string[],
-  reviewData: { verdict: string; body: string; pros: string[]; cons: string[] }
+  reviewData: { body: string; pros: string[]; cons: string[] }
 ): number {
   const dummyCanvas = document.createElement('canvas');
   const dctx = dummyCanvas.getContext('2d');
@@ -945,29 +929,16 @@ function computeAdaptiveSlideHeight(
   const footerH = 65;
 
   const partHeights = parts.map((text, idx) => {
-    const isFirst = idx === 0;
     const isLast = idx === parts.length - 1;
-    let extraH = 36; // initial gap below header
-
-    if (isFirst && reviewData.verdict) {
-      if (dctx) {
-        dctx.font = 'italic 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-        const vLines = wrapText(dctx, `“${reviewData.verdict}”`, bodyW - 44);
-        extraH += 48 + vLines.length * 30 + 26;
-      } else {
-        extraH += 130;
-      }
-    }
-
-    extraH += 30; // section title + divider
+    let extraH = 32; // initial gap below header + section divider
 
     const paragraphs = text.split(/\n+/).map((p) => p.trim()).filter(Boolean);
     let textH = 0;
 
     if (dctx && paragraphs.length > 0) {
-      const fs = 26;
-      const lh = 42;
-      const pg = 24;
+      const fs = 24;
+      const lh = 36;
+      const pg = 12;
       dctx.font = `${fs}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
       let totalLines = 0;
       paragraphs.forEach((p) => {
@@ -982,9 +953,9 @@ function computeAdaptiveSlideHeight(
     let bottomExtra = 24;
     if (isLast) {
       if (reviewData.pros.length > 0 || reviewData.cons.length > 0) {
-        bottomExtra += 160;
+        bottomExtra += 120;
       } else {
-        bottomExtra += 70;
+        bottomExtra += 20;
       }
     }
 
@@ -1003,7 +974,6 @@ function computeAdaptiveSlideHeight(
  * - Luxury obsidian frame & gold corner accents
  * - Header banner with cover thumbnail, title, creator, part indicator, and large score emblem
  * - Highly readable text typography with dynamic line wrapping and balanced vertical distribution
- * - Verdict pull-quote on slide 1, and archive rating sign-off on the final slide
  * - Archival footer branding with slide pagination dots
  */
 async function renderReviewSlideToCanvas(
@@ -1011,7 +981,7 @@ async function renderReviewSlideToCanvas(
   slideText: string,
   partNumber: number,
   totalParts: number,
-  reviewData: { verdict: string; body: string; pros: string[]; cons: string[] },
+  reviewData: { body: string; pros: string[]; cons: string[] },
   slideHeight: number = 1350
 ): Promise<string> {
   const width = 1080;
@@ -1257,44 +1227,6 @@ async function renderReviewSlideToCanvas(
   let bodyY = innerY + headerHeight + 32;
   const footerReservedY = innerY + innerH - 60;
 
-  // On Slide 1: Show Hornet Verdict Callout Box if available
-  if (partNumber === 1 && reviewData.verdict) {
-    ctx.font = 'italic 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    const verdictLines = wrapText(ctx, `“${reviewData.verdict}”`, bodyW - 44);
-    const verdictBoxH = 44 + verdictLines.length * 28 + 12;
-
-    // Callout Container
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
-    roundRect(ctx, bodyX, bodyY, bodyW, verdictBoxH, 8);
-    ctx.fill();
-
-    ctx.strokeStyle = '#334155';
-    ctx.lineWidth = 1;
-    roundRect(ctx, bodyX, bodyY, bodyW, verdictBoxH, 8);
-    ctx.stroke();
-
-    // Amber Left Accent Bar
-    ctx.fillStyle = '#f59e0b';
-    roundRect(ctx, bodyX, bodyY, 5, verdictBoxH, 3);
-    ctx.fill();
-
-    // Verdict Label
-    ctx.fillStyle = '#fbbf24';
-    ctx.font = 'bold 11px monospace';
-    ctx.fillText('★ HORNET ARCHIVE VERDICT', bodyX + 22, bodyY + 24);
-
-    // Verdict Text
-    ctx.fillStyle = '#f8fafc';
-    ctx.font = 'italic 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    let vTextY = bodyY + 50;
-    verdictLines.forEach((line) => {
-      ctx.fillText(line, bodyX + 22, vTextY);
-      vTextY += 28;
-    });
-
-    bodyY += verdictBoxH + 24;
-  }
-
   // Section Header Label
   ctx.fillStyle = '#64748b';
   ctx.font = 'bold 11px monospace';
@@ -1322,14 +1254,11 @@ async function renderReviewSlideToCanvas(
     .map((p) => p.trim())
     .filter(Boolean);
 
-  // Measure bottom reservation for final slide (highlights or assessment stamp)
+  // Measure bottom reservation for final slide (highlights)
   let bottomReservedH = 0;
-  if (partNumber === totalParts) {
-    if (reviewData.pros.length > 0 || reviewData.cons.length > 0) {
-      bottomReservedH = 160;
-    } else {
-      bottomReservedH = 65;
-    }
+  const hasProsCons = reviewData.pros.length > 0 || reviewData.cons.length > 0;
+  if (partNumber === totalParts && hasProsCons) {
+    bottomReservedH = 120;
   }
 
   const availableTextH = footerReservedY - bodyY - bottomReservedH - 20;
@@ -1353,97 +1282,47 @@ async function renderReviewSlideToCanvas(
     currTextY += typo.paraGap;
   }
 
-  // On Final Slide: Render Highlights (Pros/Cons) or Archive Assessment Stamp
-  if (partNumber === totalParts) {
-    const hasProsCons = reviewData.pros.length > 0 || reviewData.cons.length > 0;
+  // On Final Slide: Render Highlights (Pros/Cons) if present
+  if (partNumber === totalParts && hasProsCons) {
     const bottomBoxY = Math.max(currTextY + 14, footerReservedY - bottomReservedH);
+    const highlightsH = 100;
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
+    roundRect(ctx, bodyX, bottomBoxY, bodyW, highlightsH, 8);
+    ctx.fill();
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 1;
+    roundRect(ctx, bodyX, bottomBoxY, bodyW, highlightsH, 8);
+    ctx.stroke();
 
-    if (hasProsCons) {
-      const highlightsH = 110;
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
-      roundRect(ctx, bodyX, bottomBoxY, bodyW, highlightsH, 8);
-      ctx.fill();
-      ctx.strokeStyle = '#1e293b';
-      ctx.lineWidth = 1;
-      roundRect(ctx, bodyX, bottomBoxY, bodyW, highlightsH, 8);
-      ctx.stroke();
+    const colW = Math.floor((bodyW - 40) / 2);
 
-      const colW = Math.floor((bodyW - 40) / 2);
+    // Pros Column
+    if (reviewData.pros.length > 0) {
+      ctx.fillStyle = '#10b981';
+      ctx.font = 'bold 11px monospace';
+      ctx.fillText('KEY HIGHLIGHTS', bodyX + 16, bottomBoxY + 24);
+      ctx.fillStyle = '#cbd5e1';
+      ctx.font = '14px -apple-system, sans-serif';
+      let pY = bottomBoxY + 46;
+      reviewData.pros.slice(0, 2).forEach((pro) => {
+        ctx.fillText(`✓  ${pro}`, bodyX + 16, pY);
+        pY += 22;
+      });
+    }
 
-      // Pros Column
-      if (reviewData.pros.length > 0) {
-        ctx.fillStyle = '#10b981';
-        ctx.font = 'bold 11px monospace';
-        ctx.fillText('KEY HIGHLIGHTS', bodyX + 16, bottomBoxY + 24);
-        ctx.fillStyle = '#cbd5e1';
-        ctx.font = '14px -apple-system, sans-serif';
-        let pY = bottomBoxY + 46;
-        reviewData.pros.slice(0, 2).forEach((pro) => {
-          ctx.fillText(`✓  ${pro}`, bodyX + 16, pY);
-          pY += 22;
-        });
-      }
-
-      // Cons Column
-      if (reviewData.cons.length > 0) {
-        const consX = bodyX + colW + 24;
-        ctx.fillStyle = '#f43f5e';
-        ctx.font = 'bold 11px monospace';
-        ctx.fillText('CRITICAL NOTES', consX, bottomBoxY + 24);
-        ctx.fillStyle = '#cbd5e1';
-        ctx.font = '14px -apple-system, sans-serif';
-        let cY = bottomBoxY + 46;
-        reviewData.cons.slice(0, 2).forEach((con) => {
-          ctx.fillText(`•  ${con}`, consX, cY);
-          cY += 22;
-        });
-      }
-
-      // Archive assessment badge bar below highlights if room exists, or inside footer
-      const assessmentY = bottomBoxY + highlightsH + 12;
-      if (assessmentY + 40 <= footerReservedY) {
-        const scoreLevel = getScoreLevelInfo(score);
-        ctx.fillStyle = 'rgba(2, 6, 23, 0.9)';
-        roundRect(ctx, bodyX, assessmentY, bodyW, 36, 6);
-        ctx.fill();
-        ctx.strokeStyle = '#334155';
-        ctx.lineWidth = 1;
-        roundRect(ctx, bodyX, assessmentY, bodyW, 36, 6);
-        ctx.stroke();
-
-        ctx.fillStyle = '#94a3b8';
-        ctx.font = '11px monospace';
-        ctx.fillText('FINAL ARCHIVE EVALUATION', bodyX + 16, assessmentY + 23);
-
-        const evalText = `${score}/10 — ${scoreLevel.label.toUpperCase()}`;
-        const evalW = ctx.measureText(evalText).width;
-        ctx.fillStyle = scoreColor;
-        ctx.font = 'bold 12px monospace';
-        ctx.fillText(evalText, bodyX + bodyW - evalW - 16, assessmentY + 23);
-      }
-    } else {
-      // Clean Assessment Stamp
-      const scoreLevel = getScoreLevelInfo(score);
-      const signoffW = bodyW;
-      const signoffH = 50;
-
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.7)';
-      roundRect(ctx, bodyX, bottomBoxY, signoffW, signoffH, 8);
-      ctx.fill();
-      ctx.strokeStyle = '#1e293b';
-      ctx.lineWidth = 1;
-      roundRect(ctx, bodyX, bottomBoxY, signoffW, signoffH, 8);
-      ctx.stroke();
-
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = '12px monospace';
-      ctx.fillText('HORNET ARCHIVE ASSESSMENT', bodyX + 20, bottomBoxY + 30);
-
-      const signoffRating = `${score}/10 — ${scoreLevel.label.toUpperCase()}`;
-      const rW = ctx.measureText(signoffRating).width;
-      ctx.fillStyle = scoreColor;
-      ctx.font = 'bold 13px monospace';
-      ctx.fillText(signoffRating, bodyX + signoffW - rW - 20, bottomBoxY + 30);
+    // Cons Column
+    if (reviewData.cons.length > 0) {
+      const consX = bodyX + colW + 24;
+      ctx.fillStyle = '#f43f5e';
+      ctx.font = 'bold 11px monospace';
+      ctx.fillText('CRITICAL NOTES', consX, bottomBoxY + 24);
+      ctx.fillStyle = '#cbd5e1';
+      ctx.font = '14px -apple-system, sans-serif';
+      let cY = bottomBoxY + 46;
+      reviewData.cons.slice(0, 2).forEach((con) => {
+        ctx.fillText(`•  ${con}`, consX, cY);
+        cY += 22;
+      });
     }
   }
 

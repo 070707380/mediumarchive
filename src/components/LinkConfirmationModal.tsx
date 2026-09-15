@@ -147,12 +147,6 @@ export const LinkConfirmationModal: React.FC<LinkConfirmationModalProps> = ({
                     <span className="truncate">by <strong>{current.targetMediaItem.mainCreator}</strong></span>
                   </div>
                 )}
-
-                {current.targetMediaItem.summaryPlot && (
-                  <p className="text-[11px] text-slate-400 line-clamp-2 italic font-sans pt-0.5">
-                    "{current.targetMediaItem.summaryPlot}"
-                  </p>
-                )}
               </div>
             </div>
           )}

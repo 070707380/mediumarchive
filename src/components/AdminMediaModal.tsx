@@ -1378,48 +1378,26 @@ const GenresAndTagsSection = React.memo<{
   );
 });
 
-// 8. Review & Scoring Section (Summary Plot, Score Slider, Verdict)
+// 8. Scoring Section (Score Slider)
 const ReviewAndScoringSection = React.memo<{
-  initialPlot: string;
   initialScore: number;
-  initialVerdict: string;
   onUpdateField: (field: string, val: any) => void;
-}>(({ initialPlot, initialScore, initialVerdict, onUpdateField }) => {
-  const [plot, setPlot] = useState(initialPlot);
+}>(({ initialScore, onUpdateField }) => {
   const [score, setScore] = useState(initialScore);
-  const [verdict, setVerdict] = useState(initialVerdict);
 
   useEffect(() => {
-    setPlot(initialPlot);
     setScore(initialScore);
-    setVerdict(initialVerdict);
-  }, [initialPlot, initialScore, initialVerdict]);
+  }, [initialScore]);
 
   const levelInfo = useMemo(() => getScoreLevelInfo(score), [score]);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <label className="block text-xs font-mono font-bold uppercase tracking-wider text-slate-300 mb-1">
-          Summary Plot & Premise
-        </label>
-        <textarea
-          rows={3}
-          placeholder="Enter a brief summary plot, central narrative premise, or thematic overview..."
-          value={plot}
-          onChange={(e) => {
-            setPlot(e.target.value);
-            onUpdateField('summaryPlot', e.target.value);
-          }}
-          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs sm:text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-sans"
-        />
-      </div>
-
+    <div className="space-y-4">
       <div className="p-4 rounded-xl bg-amber-950/20 border border-amber-500/30 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="space-y-1">
             <label className="text-xs font-mono font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
-              <Award size={15} /> Hornet's Score (1 to 10 Scale)
+              <Award size={15} /> Rating Score (1 to 10 Scale)
             </label>
             <div className="flex items-center gap-2">
               <span className={`text-sm font-bold font-mono ${levelInfo.color}`}>
@@ -1456,22 +1434,6 @@ const ReviewAndScoringSection = React.memo<{
               className="w-16 bg-slate-950 border border-amber-500/50 rounded px-2 py-1 text-center font-mono font-bold text-amber-300 text-sm"
             />
           </div>
-        </div>
-
-        <div>
-          <label className="block text-xs font-mono font-bold uppercase tracking-wider text-slate-300 mb-1">
-            Hornet's Verdict / Quick Commentary
-          </label>
-          <textarea
-            rows={2}
-            placeholder="A brief 1-2 sentence core evaluation..."
-            value={verdict}
-            onChange={(e) => {
-              setVerdict(e.target.value);
-              onUpdateField('hornetVerdict', e.target.value);
-            }}
-            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs sm:text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-sans"
-          />
         </div>
       </div>
     </div>
@@ -2599,11 +2561,9 @@ const AdminMediaModalComponent: React.FC<AdminMediaModalProps> = ({
             onUpdateField={handleUpdateField}
           />
 
-          {/* Review, Summary Plot, Hornet's Score & Verdict */}
+          {/* Scoring Section */}
           <ReviewAndScoringSection
-            initialPlot={formData.summaryPlot}
             initialScore={formData.hornetScore}
-            initialVerdict={formData.hornetVerdict}
             onUpdateField={handleUpdateField}
           />
 

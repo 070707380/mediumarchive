@@ -166,9 +166,6 @@ export function getItemReview(item: Partial<MediaItem>): string {
     return item.review.trim();
   }
   const parts: string[] = [];
-  if (item.hornetVerdict && item.hornetVerdict.trim()) {
-    parts.push(item.hornetVerdict.trim());
-  }
   if (Array.isArray(item.pros) && item.pros.length > 0) {
     const prosText = item.pros.filter(Boolean).join('\n\n');
     if (prosText) parts.push(prosText);

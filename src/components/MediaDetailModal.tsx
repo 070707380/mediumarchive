@@ -741,18 +741,6 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
             </div>
           )}
 
-          {/* Summary Plot / Premise */}
-          {item.summaryPlot && (
-            <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1.5">
-              <div className="text-xs uppercase tracking-wider font-mono text-amber-400 font-bold flex items-center gap-1.5">
-                <BookOpen size={14} /> Premise
-              </div>
-              <p className="text-xs sm:text-sm font-sans text-slate-300 leading-relaxed">
-                {item.summaryPlot}
-              </p>
-            </div>
-          )}
-
           {/* Classification & Spectrum Tags Grid */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* 1. Main Genres */}
@@ -843,15 +831,8 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
               </div>
               <div className="text-xs font-mono text-slate-400">
                 <span className="text-amber-400 font-bold">{item.hornetScore}/10</span>
-                <span className="text-slate-500 ml-1.5">• {scoreInfo.label}</span>
               </div>
             </div>
-
-            {item.hornetVerdict && (
-              <div className="p-4 rounded-xl bg-amber-500/10 border-l-4 border-amber-500 text-amber-100/90 text-sm sm:text-base italic leading-relaxed font-sans">
-                "{item.hornetVerdict}"
-              </div>
-            )}
 
             {reviewContent ? (
               <div className="text-slate-200 text-sm sm:text-base leading-relaxed sm:leading-loose font-sans space-y-4 pt-1">
@@ -866,16 +847,6 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
                 No linear review written yet for this entry.
               </div>
             )}
-
-            {/* Scoring Philosophy Notice tucked cleanly at the bottom of the article */}
-            <div className="pt-4 border-t border-slate-800/80 space-y-1.5 font-mono">
-              <div className="flex items-center gap-1.5 text-amber-400/80 font-bold text-[10px] uppercase tracking-wider">
-                <BookOpen size={11} /> Scoring Philosophy
-              </div>
-              <p className="font-sans text-[10px] leading-relaxed text-slate-400/80 whitespace-pre-line">
-                {scoringPhilosophy}
-              </p>
-            </div>
           </article>
 
           {/* Medium Influences & Similar Media Row */}
