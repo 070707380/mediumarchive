@@ -22,8 +22,11 @@ import {
   Copy,
   Check,
   Globe,
-  Languages
+  Languages,
+  Download,
+  Loader2
 } from 'lucide-react';
+import { downloadMediaItemCardPng } from '../utils/downloadUtils';
 
 interface MediaDetailModalProps {
   item: MediaItem | null;
@@ -53,6 +56,29 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
   onUpdateScoringPhilosophy,
 }: MediaDetailModalProps) => {
   const [copiedLink, setCopiedLink] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState('');
+  const [downloaded, setDownloaded] = useState(false);
+
+  const handleDownloadCardAndReviews = async () => {
+    if (!item || downloading) return;
+    setDownloading(true);
+    setDownloadProgress('Starting...');
+    try {
+      await downloadMediaItemCardPng(null, item, (stage) => {
+        setDownloadProgress(stage);
+      });
+      setDownloaded(true);
+      setTimeout(() => {
+        setDownloaded(false);
+        setDownloadProgress('');
+      }, 2500);
+    } catch (err) {
+      console.error('Failed to download card and review:', err);
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   // Dynamic Document Title & Canonical Tag Management for Reviews
   useEffect(() => {
@@ -339,6 +365,39 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
               Archive Entry
             </div>
             <div className="flex items-center gap-2 shrink-0">
+              {isAdmin && (
+                <button
+                  id={`modal-download-btn-${item.id}`}
+                  onClick={handleDownloadCardAndReviews}
+                  disabled={downloading}
+                  className={`p-1.5 sm:px-2.5 sm:py-1 rounded-lg border text-xs font-mono font-medium flex items-center gap-1.5 transition cursor-pointer ${
+                    downloaded
+                      ? 'bg-emerald-950/80 border-emerald-500/60 text-emerald-300'
+                      : downloading
+                      ? 'bg-purple-950/80 border-purple-500/60 text-purple-300'
+                      : 'bg-slate-950 hover:bg-slate-800 border-slate-800 text-slate-300 hover:text-slate-100'
+                  }`}
+                  title="Download card and 2-4 review photos (Admin)"
+                >
+                  {downloading ? (
+                    <>
+                      <Loader2 size={13} className="animate-spin text-purple-400" />
+                      <span className="text-[11px] font-medium">{downloadProgress || 'Exporting...'}</span>
+                    </>
+                  ) : downloaded ? (
+                    <>
+                      <Check size={13} className="text-emerald-400" />
+                      <span className="text-[11px] font-bold text-emerald-300">Saved!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download size={13} className="text-slate-400" />
+                      <span className="hidden sm:inline">Export PNGs</span>
+                    </>
+                  )}
+                </button>
+              )}
+
               <button
                 onClick={handleCopyLink}
                 className={`p-1.5 sm:px-2.5 sm:py-1 rounded-lg border text-xs font-mono font-medium flex items-center gap-1.5 transition cursor-pointer ${
@@ -515,7 +574,31 @@ export const MediaDetailModal: React.FC<MediaDetailModalProps> = ({
               <span className="font-semibold flex items-center gap-1.5 font-mono">
                 <Info size={14} /> Admin Controls
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap justify-end">
+                <button
+                  id={`admin-panel-download-btn-${item.id}`}
+                  onClick={handleDownloadCardAndReviews}
+                  disabled={downloading}
+                  className="px-3 py-1.5 rounded-lg bg-purple-950 hover:bg-purple-900 text-purple-200 border border-purple-700/60 font-mono text-xs flex items-center gap-1.5 transition cursor-pointer"
+                  title="Download card and 2-4 review photos as PNGs"
+                >
+                  {downloading ? (
+                    <>
+                      <Loader2 size={13} className="animate-spin text-purple-300" />
+                      <span>{downloadProgress || 'Exporting...'}</span>
+                    </>
+                  ) : downloaded ? (
+                    <>
+                      <Check size={13} className="text-emerald-400" />
+                      <span className="text-emerald-300">Saved!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download size={13} className="text-purple-300" />
+                      <span>Download PNGs</span>
+                    </>
+                  )}
+                </button>
                 <button
                   onClick={() => onEdit(item)}
                   className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold font-mono text-xs flex items-center gap-1 transition"

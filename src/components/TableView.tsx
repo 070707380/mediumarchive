@@ -16,7 +16,8 @@ import {
   Tag,
   HelpCircle,
   Download,
-  Check
+  Check,
+  Loader2
 } from 'lucide-react';
 import { downloadMediaItemCardPng } from '../utils/downloadUtils';
 import { formatReleaseYear } from '../utils/dateUtils';
@@ -49,6 +50,7 @@ export const TableView: React.FC<TableViewProps> = ({
   const [sortAsc, setSortAsc] = useState<boolean>(false);
   const [localAiRankMap, setLocalAiRankMap] = useState<Map<string, number> | null>(null);
 
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [downloadedId, setDownloadedId] = useState<string | null>(null);
 
   const effectiveAiRankMap = propAiRankMap !== undefined ? propAiRankMap : localAiRankMap;
@@ -374,21 +376,34 @@ export const TableView: React.FC<TableViewProps> = ({
                       <button
                         type="button"
                         id={`download-table-${item.id}`}
+                        disabled={downloadingId === item.id}
                         onClick={async (e) => {
                           e.stopPropagation();
-                          setDownloadedId(item.id);
-                          await downloadMediaItemCardPng(null, item);
-                          setTimeout(() => setDownloadedId(null), 1600);
+                          if (downloadingId) return;
+                          setDownloadingId(item.id);
+                          try {
+                            await downloadMediaItemCardPng(null, item);
+                            setDownloadedId(item.id);
+                            setTimeout(() => setDownloadedId(null), 2000);
+                          } catch (err) {
+                            console.error('Failed to download card:', err);
+                          } finally {
+                            setDownloadingId(null);
+                          }
                         }}
-                        title="Download card as PNG image (Admin)"
-                        aria-label={`Download ${item.title} card as PNG`}
+                        title="Download card and review photos as PNG images (Admin)"
+                        aria-label={`Download ${item.title} card and review photos as PNG`}
                         className={`p-1.5 rounded border ${
                           downloadedId === item.id
                             ? 'border-emerald-500 text-emerald-400 bg-slate-950'
+                            : downloadingId === item.id
+                            ? 'border-purple-500 text-purple-400 bg-slate-950'
                             : 'border-slate-800 hover:border-purple-500 bg-slate-950/80 text-slate-300 hover:text-white'
                         } transition cursor-pointer inline-flex items-center justify-center`}
                       >
-                        {downloadedId === item.id ? (
+                        {downloadingId === item.id ? (
+                          <Loader2 size={12} className="animate-spin text-purple-400" />
+                        ) : downloadedId === item.id ? (
                           <Check size={12} className="text-emerald-400" />
                         ) : (
                           <Download size={12} />

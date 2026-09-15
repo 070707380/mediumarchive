@@ -24,6 +24,7 @@ export const MediaCardComponent: React.FC<MediaCardProps> = ({
   onDownload,
 }) => {
   const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState('');
   const [downloaded, setDownloaded] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -32,14 +33,20 @@ export const MediaCardComponent: React.FC<MediaCardProps> = ({
     if (downloading) return;
 
     setDownloading(true);
+    setDownloadProgress('Exporting...');
     try {
       if (onDownload) {
         onDownload(item);
       } else {
-        await downloadMediaItemCardPng(cardRef.current, item);
+        await downloadMediaItemCardPng(cardRef.current, item, (stage) => {
+          setDownloadProgress(stage);
+        });
       }
       setDownloaded(true);
-      setTimeout(() => setDownloaded(false), 2000);
+      setTimeout(() => {
+        setDownloaded(false);
+        setDownloadProgress('');
+      }, 2400);
     } catch (err) {
       console.error('Failed to download card PNG:', err);
     } finally {
@@ -134,17 +141,19 @@ export const MediaCardComponent: React.FC<MediaCardProps> = ({
               {downloading ? (
                 <>
                   <Loader2 size={11} className="animate-spin text-purple-400" />
-                  <span className="text-[10px] text-purple-300 font-medium">PNG...</span>
+                  <span className="text-[10px] text-purple-300 font-medium whitespace-nowrap">
+                    {downloadProgress || 'Exporting...'}
+                  </span>
                 </>
               ) : downloaded ? (
                 <>
                   <Check size={11} className="text-emerald-400" />
-                  <span className="text-[10px] text-emerald-400 font-bold">Saved</span>
+                  <span className="text-[10px] text-emerald-400 font-bold whitespace-nowrap">Saved</span>
                 </>
               ) : (
                 <>
                   <Download size={11} className="text-slate-300 group-hover/dl:text-white transition-colors" />
-                  <span className="text-[10px] font-medium hidden sm:inline">PNG</span>
+                  <span className="text-[10px] font-medium hidden sm:inline">Export</span>
                 </>
               )}
             </button>
