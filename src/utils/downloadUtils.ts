@@ -33,7 +33,7 @@ async function triggerDownload(url: string, filename: string): Promise<void> {
   a.click();
   document.body.removeChild(a);
   // Short pause to allow browser download pipeline to dispatch cleanly
-  await new Promise((r) => setTimeout(r, 280));
+  await new Promise((r) => setTimeout(r, 320));
 }
 
 /**
@@ -176,148 +176,105 @@ export function getFullReviewText(item: MediaItem): {
 }
 
 /**
- * Splits text into balanced segments for slides, keeping sentences together as a continuous wall of text.
+ * Paginates lines across as many slides as necessary so 100% of the review is displayed,
+ * with balanced distribution on the final slides.
  */
-function splitTextIntoBalancedParts(text: string, numParts: number): string[] {
-  if (numParts <= 1) return [text.trim()];
-
-  // Normalize single linebreaks inside paragraphs into spaces to maintain a solid wall of text
-  const cleanText = text
-    .replace(/([^\n])\n([^\n])/g, '$1 $2')
-    .replace(/[ \t]+/g, ' ')
-    .trim();
-
-  if (!cleanText) return [text];
-
-  const totalLen = cleanText.length;
-  const targetPerPart = totalLen / numParts;
-  const cuts: number[] = [0];
-
-  let currentStart = 0;
-  for (let part = 1; part < numParts; part++) {
-    const idealCut = Math.round(part * targetPerPart);
-
-    // Search range around idealCut
-    const minSearch = Math.max(currentStart + 40, Math.round(idealCut - targetPerPart * 0.4));
-    const maxSearch = Math.min(totalLen - (numParts - part) * 40, Math.round(idealCut + targetPerPart * 0.4));
-
-    let bestCut = -1;
-    let bestDist = Infinity;
-
-    if (maxSearch > minSearch) {
-      const windowStr = cleanText.substring(minSearch, maxSearch);
-
-      // Priority 1: Paragraph break (\n\n)
-      const paraRegex = /\n\s*\n/g;
-      let pMatch;
-      while ((pMatch = paraRegex.exec(windowStr)) !== null) {
-        const candidate = minSearch + pMatch.index + pMatch[0].length;
-        const dist = Math.abs(candidate - idealCut);
-        if (dist < bestDist) {
-          bestDist = dist;
-          bestCut = candidate;
-        }
-      }
-
-      // Priority 2: Sentence end followed by space or newline
-      if (bestCut === -1) {
-        const sentRegex = /[.!?]["']?\s+/g;
-        let sMatch;
-        while ((sMatch = sentRegex.exec(windowStr)) !== null) {
-          const candidate = minSearch + sMatch.index + sMatch[0].length;
-          const dist = Math.abs(candidate - idealCut);
-          if (dist < bestDist) {
-            bestDist = dist;
-            bestCut = candidate;
-          }
-        }
-      }
-
-      // Priority 3: Word boundary (whitespace)
-      if (bestCut === -1) {
-        const wordRegex = /\s+/g;
-        let wMatch;
-        while ((wMatch = wordRegex.exec(windowStr)) !== null) {
-          const candidate = minSearch + wMatch.index + wMatch[0].length;
-          const dist = Math.abs(candidate - idealCut);
-          if (dist < bestDist) {
-            bestDist = dist;
-            bestCut = candidate;
-          }
-        }
-      }
-    }
-
-    // Fallback: nearest space near idealCut or exact idealCut
-    if (bestCut === -1 || bestCut <= currentStart) {
-      const fallbackSpace = cleanText.indexOf(' ', idealCut);
-      if (fallbackSpace !== -1 && fallbackSpace < totalLen - 20) {
-        bestCut = fallbackSpace + 1;
-      } else {
-        bestCut = Math.min(totalLen - (numParts - part) * 20, idealCut);
-      }
-    }
-
-    cuts.push(bestCut);
-    currentStart = bestCut;
-  }
-  cuts.push(totalLen);
-
-  const parts: string[] = [];
-  for (let i = 0; i < cuts.length - 1; i++) {
-    const seg = cleanText.substring(cuts[i], cuts[i + 1]).trim();
-    if (seg) {
-      parts.push(seg);
-    }
+function paginateReviewLines(
+  allLines: string[],
+  hasHighlights: boolean
+): string[][] {
+  if (allLines.length === 0) {
+    return [[]];
   }
 
-  return parts.length > 0 ? parts : [cleanText];
+  const normalCapacity = 29;
+  const lastCapacity = hasHighlights ? 24 : 29;
+
+  // Single slide case
+  if (allLines.length <= lastCapacity) {
+    return [allLines];
+  }
+
+  const chunks: string[][] = [];
+  let currentIdx = 0;
+
+  while (currentIdx < allLines.length) {
+    const remaining = allLines.length - currentIdx;
+
+    // If remaining fits completely on the final slide
+    if (remaining <= lastCapacity) {
+      chunks.push(allLines.slice(currentIdx));
+      break;
+    }
+
+    // If remaining needs exactly 2 slides (current + final), balance them nicely
+    if (remaining <= normalCapacity + lastCapacity) {
+      const firstPartCount = Math.min(
+        normalCapacity,
+        Math.max(remaining - lastCapacity, Math.ceil(remaining / 2))
+      );
+      chunks.push(allLines.slice(currentIdx, currentIdx + firstPartCount));
+      chunks.push(allLines.slice(currentIdx + firstPartCount));
+      break;
+    }
+
+    // Multi-slide continuation: take normal capacity
+    chunks.push(allLines.slice(currentIdx, currentIdx + normalCapacity));
+    currentIdx += normalCapacity;
+  }
+
+  return chunks;
 }
 
 /**
- * Prepares the review slides divided strictly across 2 to 4 photos.
+ * Prepares the review lines formatted as an absolute wall of text,
+ * paginated across as many images as necessary to ensure 100% of the review is displayed.
  */
 function prepareReviewSlides(reviewData: {
   body: string;
   pros: string[];
   cons: string[];
-}): { parts: string[]; totalParts: number } {
-  let text = reviewData.body.trim();
+}): { slideLineChunks: string[][]; totalParts: number } {
+  let text = (reviewData.body || '').trim();
 
   // If text is empty or minimal, build structured review narrative
   if (!text) {
     const pieces: string[] = [];
     if (reviewData.pros.length > 0) {
-      pieces.push(`Key Strengths:\n• ${reviewData.pros.join('\n• ')}`);
+      pieces.push(`Key Strengths: ${reviewData.pros.join('; ')}.`);
     }
     if (reviewData.cons.length > 0) {
-      pieces.push(`Critical Notes:\n• ${reviewData.cons.join('\n• ')}`);
+      pieces.push(`Critical Notes: ${reviewData.cons.join('; ')}.`);
     }
-    text = pieces.join('\n\n');
+    text = pieces.join(' ');
   }
 
-  // Calculate word count to choose between 2, 3, or 4 photos
-  const wordCount = text.split(/\s+/).filter(Boolean).length;
+  // Make it an absolute wall of text:
+  // Flatten all newlines, carriage returns, tabs, and multiple spaces into single spaces.
+  // Sentences continue directly on the same line after dots without going under.
+  const wallOfText = text
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
 
-  let totalParts = 2;
-  if (wordCount > 520) {
-    totalParts = 4;
-  } else if (wordCount > 280) {
-    totalParts = 3;
+  // Create canvas context to wrap text using the exact 22px font
+  const dummyCanvas = document.createElement('canvas');
+  const dctx = dummyCanvas.getContext('2d');
+  const bodyW = 940; // 1080 - 44 - 96
+
+  let allLines: string[] = [];
+  if (dctx) {
+    dctx.font = '22px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif';
+    allLines = wrapText(dctx, wallOfText, bodyW);
   } else {
-    totalParts = 2;
+    allLines = [wallOfText];
   }
 
-  // Strictly clamp between 2 and 4 photos
-  totalParts = Math.max(2, Math.min(4, totalParts));
+  const hasHighlights = reviewData.pros.length > 0 || reviewData.cons.length > 0;
+  const slideLineChunks = paginateReviewLines(allLines, hasHighlights);
+  const totalParts = slideLineChunks.length;
 
-  const parts = splitTextIntoBalancedParts(text, totalParts);
-
-  while (parts.length < totalParts) {
-    parts.push('');
-  }
-
-  return { parts, totalParts };
+  return { slideLineChunks, totalParts };
 }
 
 // -------------------------------------------------------------
@@ -838,135 +795,8 @@ async function renderCardToCanvas(item: MediaItem): Promise<string> {
 }
 
 // -------------------------------------------------------------
-// 2. REVIEW PHOTO SLIDE CANVAS RENDERER (Dynamic & Adaptive)
+// 2. REVIEW PHOTO SLIDE CANVAS RENDERER (Pure Wall of Text)
 // -------------------------------------------------------------
-
-interface TypographySolution {
-  fontSize: number;
-  lineHeight: number;
-  paraGap: number;
-  linesByPara: string[][];
-  totalHeight: number;
-  verticalOffset: number;
-}
-
-/**
- * Dynamically solves the optimal typography scale, line-height, paragraph gap,
- * and vertical offset to ensure the review text fills the picture in a tidy, balanced,
- * editorial manner without awkward empty voids or cramped overflow.
- */
-function solveReviewSlideTypography(
-  ctx: CanvasRenderingContext2D,
-  paragraphs: string[],
-  maxWidth: number,
-  availableHeight: number
-): TypographySolution {
-  if (paragraphs.length === 0) {
-    return {
-      fontSize: 24,
-      lineHeight: 36,
-      paraGap: 14,
-      linesByPara: [],
-      totalHeight: 0,
-      verticalOffset: 0,
-    };
-  }
-
-  // Iteratively solve from readable editorial size down to compact size
-  for (let fs = 30; fs >= 17; fs--) {
-    const lh = Math.round(fs * 1.46);
-    const pg = Math.round(fs * 0.45);
-    ctx.font = `${fs}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif`;
-
-    const linesByPara: string[][] = [];
-    let totalLines = 0;
-
-    for (const p of paragraphs) {
-      const wrapped = wrapText(ctx, p, maxWidth);
-      linesByPara.push(wrapped);
-      totalLines += wrapped.length;
-    }
-
-    const textHeight = totalLines * lh + (paragraphs.length - 1) * pg;
-
-    if (textHeight <= availableHeight || fs === 17) {
-      // Gentle centering offset without inflating paragraph gaps
-      const verticalOffset = Math.max(0, Math.floor((availableHeight - textHeight) * 0.32));
-
-      return {
-        fontSize: fs,
-        lineHeight: lh,
-        paraGap: pg,
-        linesByPara,
-        totalHeight: textHeight,
-        verticalOffset,
-      };
-    }
-  }
-
-  return {
-    fontSize: 17,
-    lineHeight: 25,
-    paraGap: 10,
-    linesByPara: paragraphs.map((p) => wrapText(ctx, p, maxWidth)),
-    totalHeight: availableHeight,
-    verticalOffset: 0,
-  };
-}
-
-/**
- * Calculates a uniform adaptive picture height for the review slides so that
- * the entire set matches in aspect ratio and neither stretches excessively nor crops content.
- */
-function computeAdaptiveSlideHeight(
-  parts: string[],
-  reviewData: { body: string; pros: string[]; cons: string[] }
-): number {
-  const dummyCanvas = document.createElement('canvas');
-  const dctx = dummyCanvas.getContext('2d');
-  const bodyW = 1080 - 44 - 96; // 940px
-  const headerH = 175;
-  const footerH = 65;
-
-  const partHeights = parts.map((text, idx) => {
-    const isLast = idx === parts.length - 1;
-    let extraH = 32; // initial gap below header + section divider
-
-    const paragraphs = text.split(/\n+/).map((p) => p.trim()).filter(Boolean);
-    let textH = 0;
-
-    if (dctx && paragraphs.length > 0) {
-      const fs = 24;
-      const lh = 36;
-      const pg = 12;
-      dctx.font = `${fs}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
-      let totalLines = 0;
-      paragraphs.forEach((p) => {
-        const lines = wrapText(dctx, p, bodyW);
-        totalLines += lines.length;
-      });
-      textH = totalLines * lh + (paragraphs.length - 1) * pg;
-    } else {
-      textH = 120;
-    }
-
-    let bottomExtra = 24;
-    if (isLast) {
-      if (reviewData.pros.length > 0 || reviewData.cons.length > 0) {
-        bottomExtra += 120;
-      } else {
-        bottomExtra += 20;
-      }
-    }
-
-    const neededInner = headerH + extraH + textH + bottomExtra + footerH;
-    return neededInner + 44; // frame matting
-  });
-
-  const maxNeeded = Math.max(...partHeights);
-  // Clamped between 920 (compact tidy card) and 1350 (Instagram 4:5 portrait)
-  return Math.min(1350, Math.max(920, Math.round(maxNeeded / 10) * 10));
-}
 
 /**
  * Renders a single clean review slide photo with:
@@ -978,7 +808,7 @@ function computeAdaptiveSlideHeight(
  */
 async function renderReviewSlideToCanvas(
   item: MediaItem,
-  slideText: string,
+  slideLines: string[],
   partNumber: number,
   totalParts: number,
   reviewData: { body: string; pros: string[]; cons: string[] },
@@ -1159,7 +989,7 @@ async function renderReviewSlideToCanvas(
   const rightColX = innerX + innerW - 28;
 
   // Part Pill
-  const partText = `PART ${partNumber} OF ${totalParts}`;
+  const partText = totalParts === 1 ? 'FULL CRITIQUE' : `PART ${partNumber} OF ${totalParts}`;
   ctx.font = 'bold 12px monospace';
   const partW = ctx.measureText(partText).width + 24;
   const partH = 30;
@@ -1231,10 +1061,12 @@ async function renderReviewSlideToCanvas(
   ctx.fillStyle = '#64748b';
   ctx.font = 'bold 11px monospace';
   const sectionLabel =
-    partNumber === 1
+    totalParts === 1
       ? 'ARCHIVAL CRITIQUE & REVIEW'
+      : partNumber === 1
+      ? `ARCHIVAL CRITIQUE (PART 1 OF ${totalParts})`
       : partNumber === totalParts
-      ? 'CONCLUDING CRITIQUE & ASSESSMENT'
+      ? `CONCLUDING CRITIQUE (PART ${partNumber} OF ${totalParts})`
       : `CRITIQUE CONTINUED (PART ${partNumber} OF ${totalParts})`;
   ctx.fillText(sectionLabel, bodyX, bodyY);
 
@@ -1246,46 +1078,25 @@ async function renderReviewSlideToCanvas(
   ctx.lineTo(bodyX + bodyW, bodyY - 4);
   ctx.stroke();
 
-  bodyY += 22;
+  bodyY += 26;
 
-  // Split slide text into clean paragraphs
-  const paragraphs = slideText
-    .split(/\n+/)
-    .map((p) => p.trim())
-    .filter(Boolean);
-
-  // Measure bottom reservation for final slide (highlights)
-  let bottomReservedH = 0;
-  const hasProsCons = reviewData.pros.length > 0 || reviewData.cons.length > 0;
-  if (partNumber === totalParts && hasProsCons) {
-    bottomReservedH = 120;
-  }
-
-  const availableTextH = footerReservedY - bodyY - bottomReservedH - 20;
-
-  // Run dynamic typography solver to fill the picture adaptively
-  const typo = solveReviewSlideTypography(ctx, paragraphs, bodyW, Math.max(120, availableTextH));
-
-  let currTextY = bodyY + typo.verticalOffset;
-  ctx.font = `${typo.fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif`;
+  // Render lines as a continuous, dense, unbroken wall of text
+  const fontSize = 22;
+  const lineHeight = 33;
+  ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif`;
   ctx.fillStyle = '#f1f5f9';
 
-  for (let i = 0; i < typo.linesByPara.length; i++) {
-    const lines = typo.linesByPara[i];
-    for (let j = 0; j < lines.length; j++) {
-      if (currTextY + typo.lineHeight > footerReservedY - bottomReservedH) {
-        break;
-      }
-      ctx.fillText(lines[j], bodyX, currTextY);
-      currTextY += typo.lineHeight;
-    }
-    currTextY += typo.paraGap;
+  let currTextY = bodyY;
+  for (let i = 0; i < slideLines.length; i++) {
+    ctx.fillText(slideLines[i], bodyX, currTextY);
+    currTextY += lineHeight;
   }
 
   // On Final Slide: Render Highlights (Pros/Cons) if present
+  const hasProsCons = reviewData.pros.length > 0 || reviewData.cons.length > 0;
   if (partNumber === totalParts && hasProsCons) {
-    const bottomBoxY = Math.max(currTextY + 14, footerReservedY - bottomReservedH);
     const highlightsH = 100;
+    const bottomBoxY = footerReservedY - highlightsH - 8;
     ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
     roundRect(ctx, bodyX, bottomBoxY, bodyW, highlightsH, 8);
     ctx.fill();
@@ -1341,12 +1152,16 @@ async function renderReviewSlideToCanvas(
   ctx.font = '11px monospace';
   ctx.fillText('HORNET ARCHIVE • CRITICAL REVIEW', innerX + 32, footerY + 8);
 
-  // Center: Slide Dots Indicator
+  // Center: Slide Dots Indicator (dots if <= 8, clean label otherwise)
   let dotsStr = '';
-  for (let d = 1; d <= totalParts; d++) {
-    dotsStr += d === partNumber ? ' ●' : ' ○';
+  if (totalParts <= 8) {
+    for (let d = 1; d <= totalParts; d++) {
+      dotsStr += d === partNumber ? ' ●' : ' ○';
+    }
   }
-  const slideIndicator = `SLIDE ${partNumber} OF ${totalParts} ${dotsStr}`;
+  const slideIndicator = dotsStr
+    ? `SLIDE ${partNumber} OF ${totalParts} ${dotsStr}`
+    : `SLIDE ${partNumber} OF ${totalParts}`;
   ctx.font = 'bold 12px monospace';
   const slideW = ctx.measureText(slideIndicator).width;
   ctx.fillStyle = '#94a3b8';
@@ -1368,8 +1183,8 @@ async function renderReviewSlideToCanvas(
 
 /**
  * Downloads a complete visual media suite for the entry:
- * 1. The primary collectible card PNG with enlarged score & clean, limited tags (no redundant second rating)
- * 2. The critical review divided strictly across 2 to 4 photos, dynamically scaled to fill the picture tidily
+ * 1. The primary collectible card PNG with enlarged score & clean tags
+ * 2. The critical review formatted as an absolute wall of text across as many images as needed
  */
 export async function downloadMediaItemCardPng(
   _cardElement: HTMLElement | null,
@@ -1387,18 +1202,17 @@ export async function downloadMediaItemCardPng(
       await triggerDownload(cardDataUrl, cardFilename);
     }
 
-    // Stage 2: Review Photos (strictly 2 to 4 photos)
+    // Stage 2: Review Photos (downloads as many images as needed to display 100% of the review)
     const reviewData = getFullReviewText(item);
-    const { parts, totalParts } = prepareReviewSlides(reviewData);
+    const { slideLineChunks, totalParts } = prepareReviewSlides(reviewData);
 
-    // Compute dynamic, adaptive uniform height for the review slide set
-    const slideHeight = computeAdaptiveSlideHeight(parts, reviewData);
+    const slideHeight = 1350;
 
     for (let i = 0; i < totalParts; i++) {
-      onProgress?.(`Part ${i + 1}/${totalParts}...`);
+      onProgress?.(totalParts === 1 ? 'Review photo...' : `Photo ${i + 1} of ${totalParts}...`);
       const slideDataUrl = await renderReviewSlideToCanvas(
         item,
-        parts[i],
+        slideLineChunks[i],
         i + 1,
         totalParts,
         reviewData,
